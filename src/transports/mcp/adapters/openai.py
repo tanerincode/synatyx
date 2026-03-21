@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.transports.mcp.server import TOOL_DEFINITIONS
+from src.transports.mcp.tools import TOOL_DEFINITIONS
 
 
 def to_openai_tools() -> list[dict[str, Any]]:

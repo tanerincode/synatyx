@@ -1,0 +1,69 @@
+[
+  {
+    "name": "context_retrieve",
+    "description": "Retrieve relevant context items for the current query from all memory layers.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "Current question or topic"},
+        "user_id": {"type": "string", "description": "User identifier"},
+        "session_id": {"type": "string", "description": "Session identifier (optional)"},
+        "top_k": {"type": "integer", "description": "Max items to return (default: 10)"},
+        "memory_layers": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["L1", "L2", "L3", "L4"]},
+          "description": "Which memory layers to query (default: all)"
+        }
+      },
+      "required": ["query", "user_id"]
+    }
+  },
+  {
+    "name": "context_store",
+    "description": "Store a piece of content into the appropriate memory layer.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "content": {"type": "string", "description": "Content to store"},
+        "user_id": {"type": "string", "description": "User identifier"},
+        "importance": {"type": "number", "description": "Importance score 0.0-1.0"},
+        "memory_layer": {"type": "string", "enum": ["L1", "L2", "L3", "L4"]},
+        "session_id": {"type": "string", "description": "Session identifier (optional)"},
+        "metadata": {"type": "object", "description": "Extra metadata (optional)"},
+        "confidence": {"type": "number", "description": "Confidence score 0.0-1.0 (default: 1.0)"}
+      },
+      "required": ["content", "user_id", "memory_layer"]
+    }
+  },
+  {
+    "name": "context_summarize",
+    "description": "Summarize the working memory for a session. Runs async, off the critical path.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "session_id": {"type": "string", "description": "Session to summarize"},
+        "user_id": {"type": "string", "description": "User identifier"},
+        "max_tokens": {"type": "integer", "description": "Max summary length in tokens (default: 500)"},
+        "focus": {"type": "string", "description": "What to focus on in the summary (optional)"}
+      },
+      "required": ["session_id", "user_id"]
+    }
+  },
+  {
+    "name": "context_score",
+    "description": "Score a list of context items by relevance to a query.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "List of context items to score",
+          "items": {"type": "object"}
+        },
+        "query": {"type": "string", "description": "Query to score against"}
+      },
+      "required": ["items", "query"]
+    }
+  }
+]
+
