@@ -107,6 +107,52 @@ class SynatyxMCPServer:
                 "dropped_items": [i.model_dump() for i in dropped],
             }
 
+        elif name == "context_checkpoint":
+            item_id, embedded = await self._store.checkpoint(
+                name=args["name"],
+                content=args["content"],
+                user_id=args["user_id"],
+                project=args.get("project"),
+                session_id=args.get("session_id"),
+            )
+            return {"item_id": item_id, "embedded": embedded, "checkpoint_name": args["name"]}
+
+        elif name == "context_deprecate":
+            await self._store.deprecate(
+                item_id=args["item_id"],
+                user_id=args["user_id"],
+                reason=args.get("reason"),
+            )
+            return {"deprecated": True, "item_id": args["item_id"]}
+
+        elif name == "context_list":
+            from src.models.memory_layer import MemoryLayer as ML
+            layer_str = args.get("memory_layer")
+            layer = ML(layer_str) if layer_str else None
+            items = await self._qdrant.list_items(
+                user_id=args["user_id"],
+                memory_layer=layer,
+                checkpoints_only=args.get("checkpoints_only", False),
+                include_deprecated=args.get("include_deprecated", False),
+                project=args.get("project"),
+                limit=args.get("limit", 50),
+            )
+            return {
+                "items": [
+                    {
+                        "id": i.id,
+                        "memory_layer": i.memory_layer.value,
+                        "content": i.content[:200],
+                        "importance": i.importance,
+                        "is_pinned": i.is_pinned,
+                        "is_deprecated": i.is_deprecated,
+                        "metadata": i.metadata,
+                    }
+                    for i in items
+                ],
+                "count": len(items),
+            }
+
         raise ValueError(f"Unknown tool: {name}")
 
     async def run_stdio(self) -> None:

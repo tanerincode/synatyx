@@ -154,6 +154,65 @@ class StoreService:
 
         return first_id, embedded
 
+    async def checkpoint(
+        self,
+        name: str,
+        content: str,
+        user_id: str,
+        project: str | None = None,
+        session_id: str | None = None,
+    ) -> tuple[str, bool]:
+        """
+        Store a named checkpoint as a pinned L3 memory item with importance=1.0.
+
+        Checkpoints represent significant development milestones or decisions.
+        They are never excluded from retrieval and can be deprecated (not deleted)
+        when superseded.
+        """
+        metadata: dict[str, Any] = {"checkpoint_name": name}
+        if project:
+            metadata["project"] = project
+
+        return await self.store(
+            content=f"[Checkpoint: {name}]\n\n{content}",
+            user_id=user_id,
+            memory_layer=MemoryLayer.L3,
+            importance=1.0,
+            is_pinned=True,
+            session_id=session_id,
+            metadata=metadata,
+        )
+
+    async def deprecate(
+        self,
+        item_id: str,
+        user_id: str,
+        reason: str | None = None,
+    ) -> None:
+        """
+        Mark an existing memory item as deprecated.
+
+        The item is NOT deleted — it stays in the vector store but is excluded
+        from normal retrieval (search filters out is_deprecated=True).
+        A deprecation note is optionally stored alongside it.
+        """
+        # Fetch the item first to enforce user isolation
+        items = await self._qdrant.list_items(
+            user_id=user_id, include_deprecated=True, limit=1000
+        )
+        target = next((i for i in items if i.id == item_id), None)
+        if target is None:
+            raise ValueError(f"Item {item_id!r} not found for user {user_id!r}")
+        if target.user_id != user_id:
+            raise PermissionError(f"User isolation violation for item {item_id!r}")
+
+        await self._qdrant.deprecate(item_id, reason=reason)
+
+        await self._postgres.audit(user_id, "context_deprecate", {
+            "item_id": item_id,
+            "reason": reason,
+        })
+
     async def _upsert_session(self, user_id: str, session_id: str, token_delta: int) -> None:
         """Create or update the Postgres session record for L1 tracking."""
         from src.models.session import Session

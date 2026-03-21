@@ -10,6 +10,7 @@ from qdrant_client.models import (
     Filter,
     MatchValue,
     PointStruct,
+    ScrollRequest,
     VectorParams,
 )
 
@@ -119,6 +120,69 @@ class QdrantStorage:
                 must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
             ),
         )
+
+    async def deprecate(self, item_id: str, reason: str | None = None) -> None:
+        """Mark a point as deprecated by updating its payload in-place."""
+        payload: dict[str, Any] = {"is_deprecated": True}
+        if reason:
+            payload["deprecated_reason"] = reason
+        await self._client.set_payload(
+            collection_name=COLLECTION_NAME,
+            payload=payload,
+            points=[str(uuid.UUID(item_id))],
+        )
+
+    async def list_items(
+        self,
+        user_id: str,
+        memory_layer: MemoryLayer | None = None,
+        checkpoints_only: bool = False,
+        include_deprecated: bool = False,
+        project: str | None = None,
+        limit: int = 50,
+    ) -> list[ContextItem]:
+        """Scroll through items without vector search — for listing/browsing."""
+        conditions: list[Any] = [
+            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+        ]
+        if not include_deprecated:
+            conditions.append(
+                FieldCondition(key="is_deprecated", match=MatchValue(value=False))
+            )
+        if memory_layer:
+            conditions.append(
+                FieldCondition(key="memory_layer", match=MatchValue(value=memory_layer.value))
+            )
+
+        results, _ = await self._client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=Filter(must=conditions),
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        items = []
+        for r in results:
+            p = r.payload or {}
+            metadata = p.get("metadata", {})
+            # filter by checkpoint or project if requested
+            if checkpoints_only and "checkpoint_name" not in metadata:
+                continue
+            if project and metadata.get("project") != project:
+                continue
+            items.append(ContextItem(
+                id=str(r.id),
+                user_id=p.get("user_id", ""),
+                session_id=p.get("session_id"),
+                content=p.get("content", ""),
+                memory_layer=MemoryLayer(p.get("memory_layer", "L3")),
+                importance=p.get("importance", 0.5),
+                is_pinned=p.get("is_pinned", False),
+                is_deprecated=p.get("is_deprecated", False),
+                metadata=metadata,
+            ))
+        return items
 
     async def ping(self) -> bool:
         try:
