@@ -88,8 +88,10 @@ def score_item(
         + WEIGHT_USER_SIGNAL * user_signal
     )
 
+    _scored_fields = {"recency_score", "semantic_score", "importance_score", "user_signal_score", "score"}
+    base = item.model_dump(exclude=_scored_fields)
     return ScoredContextItem(
-        **item.model_dump(),
+        **base,
         recency_score=round(recency, 4),
         semantic_score=round(semantic, 4),
         importance_score=round(importance, 4),

@@ -8,6 +8,8 @@ from typing import Any, AsyncGenerator
 import strawberry
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
+from mcp.server.sse import SseServerTransport
+from starlette.routing import Mount, Route
 from strawberry.fastapi import GraphQLRouter
 
 from src.config import settings
@@ -21,6 +23,9 @@ from src.storage.redis import RedisStorage
 from src.transports.graphql.schema.mutations import Mutation
 from src.transports.graphql.schema.queries import Query
 from src.transports.graphql.schema.subscriptions import Subscription
+from src.transports.mcp.server import SynatyxMCPServer
+
+_mcp_server: SynatyxMCPServer | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +38,7 @@ _postgres: PostgresStorage | None = None
 _retrieve_svc: RetrieveService | None = None
 _store_svc: StoreService | None = None
 _summarize_svc: SummarizeService | None = None
+_mcp_sse: SseServerTransport | None = None
 
 
 async def get_context() -> dict[str, Any]:
@@ -64,12 +70,9 @@ schema = strawberry.Schema(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _qdrant, _redis, _postgres, _retrieve_svc, _store_svc, _summarize_svc
+    global _qdrant, _redis, _postgres, _retrieve_svc, _store_svc, _summarize_svc, _mcp_server, _mcp_sse
 
-    _qdrant = QdrantStorage(
-        host=settings.qdrant.host,
-        port=settings.qdrant.port,
-    )
+    _qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port)
     await _qdrant.init_collection()
 
     _redis = RedisStorage(url=settings.redis.url)
@@ -81,6 +84,9 @@ async def lifespan(app: FastAPI):
     _retrieve_svc = RetrieveService(_qdrant, _redis, _postgres)
     _store_svc = StoreService(_qdrant, _redis, _postgres)
     _summarize_svc = SummarizeService(_redis, _postgres)
+
+    _mcp_server = SynatyxMCPServer(_qdrant, _redis, _postgres)
+    _mcp_sse = SseServerTransport("/mcp/messages/")
 
     yield
 
@@ -105,6 +111,27 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(graphql_router, prefix="/graphql")
+
+    # ── MCP HTTP/SSE endpoint ──────────────────────────────────────────────
+    @app.get("/mcp/sse")
+    async def mcp_sse_connect(request: Request) -> None:
+        """
+        MCP SSE connection endpoint.
+        Clients connect here to establish the MCP session.
+
+        OpenClaw / Claude Desktop config:
+            { "url": "http://localhost:8000/mcp/sse" }
+        """
+        async with _mcp_sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await _mcp_server._server.run(
+                streams[0],
+                streams[1],
+                _mcp_server._server.create_initialization_options(),
+            )
+
+    app.mount("/mcp/messages/", app=_mcp_sse.handle_post_message)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

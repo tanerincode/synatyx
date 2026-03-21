@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 import strawberry
@@ -8,7 +9,7 @@ from strawberry.scalars import JSON
 
 
 @strawberry.enum
-class MemoryLayerGQL:
+class MemoryLayerGQL(str, Enum):
     L1 = "L1"
     L2 = "L2"
     L3 = "L3"
