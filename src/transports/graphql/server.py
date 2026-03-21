@@ -106,7 +106,7 @@ def create_app() -> FastAPI:
     graphql_router = GraphQLRouter(
         schema,
         context_getter=get_context,
-        graphiql=settings.debug,
+        graphql_ide="graphiql" if settings.debug else None,
         subscription_protocols=["graphql-transport-ws"],
     )
 
@@ -131,7 +131,11 @@ def create_app() -> FastAPI:
                 _mcp_server._server.create_initialization_options(),
             )
 
-    app.mount("/mcp/messages/", app=_mcp_sse.handle_post_message)
+    async def _mcp_messages_app(scope, receive, send):
+        """Defer _mcp_sse lookup to request time (set during lifespan)."""
+        await _mcp_sse.handle_post_message(scope, receive, send)
+
+    app.mount("/mcp/messages/", app=_mcp_messages_app)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
