@@ -53,8 +53,12 @@ class SynatyxMCPServer:
 
         @self._server.call_tool()
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-            result = await self._dispatch(name, arguments)
             import json
+            try:
+                result = await self._dispatch(name, arguments)
+            except Exception as exc:
+                logger.exception("Tool %r raised an error", name)
+                result = {"error": str(exc), "tool": name}
             return [TextContent(type="text", text=json.dumps(result, default=str))]
 
     async def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:

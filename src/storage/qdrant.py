@@ -119,6 +119,13 @@ class QdrantStorage:
             ),
         )
 
+    async def ping(self) -> bool:
+        try:
+            await self._client.get_collections()
+            return True
+        except Exception:
+            return False
+
     async def close(self) -> None:
         await self._client.close()
 
