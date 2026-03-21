@@ -21,8 +21,10 @@ dependencies = [
     # Cache & Pub/Sub
     "redis[hiredis]>=5.0.0",
 
-    # PostgreSQL (async)
+    # PostgreSQL (async ORM)
+    "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
 
     # Kafka
     "aiokafka>=0.11.0",
