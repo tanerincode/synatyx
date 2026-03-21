@@ -23,12 +23,14 @@ def _recency_score(created_at: datetime) -> float:
     """
     now = datetime.now(timezone.utc)
     seconds = max(0.0, (now - created_at).total_seconds())
-    # Half-life of 24 hours — after 24h score ≈ 0.5
     return 1.0 / (1.0 + seconds / 86_400)
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two vectors."""
+    """
+    Fallback cosine similarity — only used for L1 items that bypass Qdrant.
+    For all other layers Qdrant returns the native cosine score directly.
+    """
     if not a or not b or len(a) != len(b):
         return 0.0
     dot = sum(x * y for x, y in zip(a, b))
@@ -40,10 +42,6 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 def _importance_score(item: ContextItem) -> float:
-    """
-    Importance score from item's own importance field (0–1).
-    Boosted if item is pinned.
-    """
     base = item.importance
     if item.is_pinned:
         base = min(1.0, base + 0.2)
@@ -51,10 +49,6 @@ def _importance_score(item: ContextItem) -> float:
 
 
 def _user_signal_score(item: ContextItem, query: str) -> float:
-    """
-    User signal: boost items whose content keywords appear in the current query.
-    Simple keyword overlap as a proxy for user re-interest.
-    """
     if not query:
         return 0.0
     query_words = set(query.lower().split())
@@ -70,11 +64,22 @@ def score_item(
     query: str,
     query_embedding: list[float] | None = None,
 ) -> ScoredContextItem:
-    """Score a single ContextItem against the current query."""
+    """
+    Score a single ContextItem against the current query.
+
+    Semantic score source:
+    - L2/L3/L4 items: use Qdrant's native cosine score (already on semantic_score)
+    - L1 items (Redis, no Qdrant score): compute cosine locally as fallback
+    """
     recency = _recency_score(item.created_at)
-    semantic = _cosine_similarity(item.embedding or [], query_embedding or [])
     importance = _importance_score(item)
     user_signal = _user_signal_score(item, query)
+
+    # Use Qdrant's native cosine score if already available, else compute locally
+    qdrant_score = item.semantic_score if isinstance(item, ScoredContextItem) else 0.0
+    semantic = qdrant_score if qdrant_score > 0.0 else _cosine_similarity(
+        item.embedding or [], query_embedding or []
+    )
 
     combined = (
         WEIGHT_RECENCY * recency
