@@ -75,14 +75,15 @@ class QdrantStorage:
                 FieldCondition(key="memory_layer", match=MatchValue(value=memory_layer.value))
             )
 
-        results = await self._client.search(
+        results = await self._client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=Filter(must=conditions),
             limit=top_k,
             score_threshold=score_threshold,
             with_payload=True,
         )
+        results = results.points
 
         items = []
         for r in results:
