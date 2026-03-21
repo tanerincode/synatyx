@@ -99,6 +99,10 @@ class StoreService:
             await self._redis.l1_push(item)
             first_id = item.id
 
+            # Keep the Postgres session record in sync
+            if session_id:
+                await self._upsert_session(user_id, session_id, item.token_estimate)
+
         else:
             # Chunk content if it exceeds threshold (L2, L3, L4)
             if len(sanitized) > CHUNK_THRESHOLD:
@@ -149,4 +153,29 @@ class StoreService:
         })
 
         return first_id, embedded
+
+    async def _upsert_session(self, user_id: str, session_id: str, token_delta: int) -> None:
+        """Create or update the Postgres session record for L1 tracking."""
+        from src.models.session import Session
+        try:
+            session = await self._postgres.session_get(session_id)
+            if session is None:
+                session = Session(
+                    session_id=session_id,
+                    user_id=user_id,
+                    token_count=token_delta,
+                    message_count=1,
+                )
+                await self._postgres.session_create(session)
+            else:
+                session.token_count += token_delta
+                session.message_count += 1
+                session.touch()
+                await self._postgres.session_update(session)
+        except Exception:
+            # Postgres being down must not break L1 storage
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not upsert session %s for user %s — Postgres unavailable", session_id, user_id
+            )
 

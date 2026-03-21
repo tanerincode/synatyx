@@ -35,7 +35,7 @@ class SynatyxMCPServer:
         self._server = Server("synatyx-context-engine")
         self._retrieve = RetrieveService(qdrant, redis, postgres)
         self._store = StoreService(qdrant, redis, postgres)
-        self._summarize = SummarizeService(redis, postgres)
+        self._summarize = SummarizeService(redis, postgres, store=self._store)
         self._budget = BudgetManager()
         self._register_handlers()
 

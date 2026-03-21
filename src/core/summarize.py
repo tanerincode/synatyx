@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from src.models.context import ContextItem
 from src.models.memory_layer import MemoryLayer
-from src.models.session import KeyEntity, Session
+from src.models.session import KeyEntity
 from src.storage.postgres import PostgresStorage
 from src.storage.redis import RedisStorage
+
+if TYPE_CHECKING:
+    from src.core.store import StoreService
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +41,11 @@ class SummarizeService:
         self,
         redis: RedisStorage,
         postgres: PostgresStorage,
+        store: "StoreService | None" = None,
     ) -> None:
         self._redis = redis
         self._postgres = postgres
+        self._store = store
 
     async def summarize(
         self,
@@ -78,9 +83,19 @@ class SummarizeService:
         summary, key_entities = await self._call_llm(prompt)
         tokens_after = len(summary) // 4  # rough estimate
 
-        # Store summary as L2 episodic memory item
-        from src.core.store import StoreService
-        from src.storage.qdrant import QdrantStorage
+        # Store summary as L2 episodic memory vector in Qdrant
+        if summary and self._store:
+            try:
+                await self._store.store(
+                    content=summary,
+                    user_id=user_id,
+                    memory_layer=MemoryLayer.L2,
+                    importance=0.8,
+                    session_id=session_id,
+                    metadata={"source": "summarize", "session_id": session_id},
+                )
+            except Exception:
+                logger.warning("Failed to embed and store L2 summary for session %s", session_id)
 
         # Publish summarization event
         await self._redis.publish("session_summarized", {

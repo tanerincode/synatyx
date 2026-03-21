@@ -57,6 +57,8 @@ async def _run_mcp_stdio() -> None:
     await _connect_with_retry("Qdrant", qdrant.init_collection)
 
     redis = RedisStorage(url=settings.redis.url)
+    await _connect_with_retry("Redis", redis.ping)
+
     postgres = PostgresStorage(dsn=settings.postgres.dsn)
     await _connect_with_retry("PostgreSQL", postgres.connect)
 
