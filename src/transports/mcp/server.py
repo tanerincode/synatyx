@@ -33,6 +33,7 @@ class SynatyxMCPServer:
         postgres: PostgresStorage,
     ) -> None:
         self._server = Server("synatyx-context-engine")
+        self._qdrant = qdrant
         self._retrieve = RetrieveService(qdrant, redis, postgres)
         self._store = StoreService(qdrant, redis, postgres)
         self._summarize = SummarizeService(redis, postgres, store=self._store)
