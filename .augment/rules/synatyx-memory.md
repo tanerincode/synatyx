@@ -1,0 +1,65 @@
+---
+type: always
+---
+
+# Synatyx Long-Term Memory
+
+You have access to the Synatyx context engine via MCP tools. Use them to persist and recall information across conversations.
+
+## Available Tools
+
+- `context_store` — Save a piece of information to long-term memory
+- `context_retrieve` — Search and recall relevant memories before answering
+- `context_summarize` — Summarize and compress working memory for a session
+
+## When to Call `context_retrieve`
+
+Call `context_retrieve` at the **start of every new conversation** and whenever the user asks about something that may have been discussed before:
+
+- At conversation start: query with the user's first message to surface relevant past context
+- When the user references a previous decision, preference, or task ("like we did before", "as we discussed")
+- Before starting any significant new task (architecture decisions, new features, debugging sessions)
+- When asked about the project, tech stack, or conventions
+
+Parameters to use:
+- `user_id`: always `"tombastaner"`
+- `query`: a short description of what you are looking for
+- `top_k`: `5` for general queries, `10` for broad topic searches
+
+## When to Call `context_store`
+
+Store information **proactively** during or after a conversation whenever something worth remembering is established:
+
+- User decisions: chosen libraries, patterns, architecture choices
+- Bugs found and their root causes
+- Project conventions or preferences the user states
+- Task outcomes: what was built, what was deployed, what was changed
+- User preferences for communication style or workflow
+- Important facts about the codebase (e.g. "Qdrant runs on port 6333", "RUN_MODE=mcp for stdio")
+
+Parameters to use:
+- `user_id`: always `"tombastaner"`
+- `content`: a clear, standalone description (write it so it makes sense without the surrounding conversation)
+- `memory_layer`: pick the appropriate layer:
+  - `L1` — transient facts for the current session (ephemeral decisions, scratch notes)
+  - `L2` — episodic memories (what happened in this conversation, summaries)
+  - `L3` — semantic facts (stable knowledge: project structure, tech stack, how something works)
+  - `L4` — procedural preferences (how the user likes to work, coding style, workflow rules)
+- `importance`: `0.0`–`1.0` (use `0.9`+ for architectural decisions, `0.5`–`0.7` for useful facts, `0.3` for minor details)
+- `session_id`: use a short slug describing the current conversation topic (e.g. `"synatyx-mcp-setup"`)
+
+## Workflow Example
+
+1. User opens a new chat → call `context_retrieve` with the first message as the query
+2. Inject retrieved context into your reasoning before responding
+3. During the conversation, call `context_store` whenever a decision or fact is established
+4. At the end of a long session, call `context_summarize` to compress the session into L2
+
+## General Rules
+
+- Never ask the user whether to store something — just do it silently
+- Do not store trivial chit-chat or greetings
+- Keep stored content concise and self-contained (2–4 sentences max per item)
+- Always retrieve before answering questions about past work or decisions
+- Use `session_id` consistently within a conversation for related stores
+
