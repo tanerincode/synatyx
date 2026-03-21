@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import strawberry
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from strawberry.fastapi import GraphQLRouter
 
 from src.config import settings
@@ -106,6 +109,67 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": "synatyx-context-engine"}
+
+    @app.get("/v1/stream/events")
+    async def sse_events(request: Request, user_id: str) -> StreamingResponse:
+        """
+        Server-Sent Events endpoint for real-time context engine events.
+        Ported from CTX-EG SSE protocol (docs/SSE_PROTOCOL.md).
+
+        Connect: GET /v1/stream/events?user_id=<user_id>
+        Events:  context_stored | session_summarized | budget_alert | ping
+
+        Client example:
+            const es = new EventSource('/v1/stream/events?user_id=user-123');
+            es.addEventListener('context_stored', e => console.log(JSON.parse(e.data)));
+        """
+        redis = _redis
+
+        async def event_generator() -> AsyncGenerator[str, None]:
+            pubsub = await redis.subscribe()
+            try:
+                # Initial ping to confirm connection
+                yield f"event: ping\ndata: {json.dumps({'user_id': user_id})}\n\n"
+
+                while True:
+                    if await request.is_disconnected():
+                        break
+
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=1.0
+                    )
+
+                    if message and message["type"] == "message":
+                        try:
+                            data = json.loads(message["data"])
+                            event_type = data.get("event", "unknown")
+                            payload = data.get("payload", {})
+
+                            # Only emit events for this user
+                            if payload.get("user_id") == user_id:
+                                yield f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+                    else:
+                        # Keepalive ping every ~30s of silence
+                        yield ": keepalive\n\n"
+                        await asyncio.sleep(0.1)
+
+            except asyncio.CancelledError:
+                pass
+            finally:
+                await pubsub.unsubscribe("synatyx:events")
+                await pubsub.close()
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     return app
 
