@@ -2,6 +2,8 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: context_engine_qdrant
+    ports:
+      - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
@@ -9,6 +11,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: context_engine_redis
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -23,6 +27,8 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: context_engine_postgres
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: context_engine
       POSTGRES_USER: context_engine
