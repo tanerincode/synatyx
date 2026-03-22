@@ -26,9 +26,6 @@ dependencies = [
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
 
-    # Kafka
-    "aiokafka>=0.11.0",
-
     # Embeddings
     "sentence-transformers>=3.0.0",
     "openai>=1.35.0",

@@ -45,13 +45,6 @@ class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="POSTGRES_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 
 
-class KafkaSettings(BaseSettings):
-    bootstrap_servers: str = "localhost:9092"
-    topic_memory_updates: str = "synatyx.memory.updates"
-    topic_summarize: str = "synatyx.summarize"
-
-    model_config = SettingsConfigDict(env_prefix="KAFKA_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
-
 
 class EmbeddingSettings(BaseSettings):
     provider: str = "openai"  # or "sentence-transformers"
@@ -73,7 +66,6 @@ class Settings(BaseSettings):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
-    kafka: KafkaSettings = Field(default_factory=KafkaSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
     model_config = SettingsConfigDict(
