@@ -56,7 +56,10 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    ports:
+      - "8000:8000"
     environment:
+      RUN_MODE: graphql
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
       REDIS_URL: redis://redis:6379/0
