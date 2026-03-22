@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Integer, String, Text, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.config import settings
 from src.models.session import KeyEntity, Session, SessionStatus
+from src.models.task import Task, TaskPriority, TaskStatus
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +54,20 @@ class AuditLogRow(Base):
     action: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TaskRow(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending", index=True)
+    priority: Mapped[str] = mapped_column(String, nullable=False, default="medium")
+    project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +185,83 @@ class PostgresStorage:
             created_at=row.created_at,
             updated_at=row.updated_at,
             summarized_at=row.summarized_at,
+        )
+
+    # ── Task CRUD ────────────────────────────────────────────────────────────
+
+    async def task_add(self, task: Task) -> Task:
+        async with self._session_factory() as session:
+            row = TaskRow(
+                id=task.id,
+                user_id=task.user_id,
+                title=task.title,
+                description=task.description,
+                status=task.status.value,
+                priority=task.priority.value,
+                project=task.project,
+            )
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+            return self._row_to_task(row)
+
+    async def task_list(
+        self,
+        user_id: str,
+        status: TaskStatus | None = None,
+        priority: TaskPriority | None = None,
+        project: str | None = None,
+        limit: int = 50,
+    ) -> list[Task]:
+        async with self._session_factory() as session:
+            stmt = select(TaskRow).where(TaskRow.user_id == user_id)
+            if status:
+                stmt = stmt.where(TaskRow.status == status.value)
+            if priority:
+                stmt = stmt.where(TaskRow.priority == priority.value)
+            if project:
+                stmt = stmt.where(TaskRow.project == project)
+            stmt = stmt.order_by(TaskRow.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._row_to_task(r) for r in result.scalars().all()]
+
+    async def task_update(
+        self,
+        task_id: str,
+        user_id: str,
+        status: TaskStatus | None = None,
+        priority: TaskPriority | None = None,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> Task | None:
+        async with self._session_factory() as session:
+            row = await session.get(TaskRow, task_id)
+            if not row or row.user_id != user_id:
+                return None
+            if status:
+                row.status = status.value
+            if priority:
+                row.priority = priority.value
+            if title:
+                row.title = title
+            if description is not None:
+                row.description = description
+            await session.commit()
+            await session.refresh(row)
+            return self._row_to_task(row)
+
+    @staticmethod
+    def _row_to_task(row: TaskRow) -> Task:
+        return Task(
+            id=row.id,
+            user_id=row.user_id,
+            title=row.title,
+            description=row.description,
+            status=TaskStatus(row.status),
+            priority=TaskPriority(row.priority),
+            project=row.project,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
     async def close(self) -> None:

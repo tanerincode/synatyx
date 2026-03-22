@@ -175,6 +175,61 @@ class SynatyxMCPServer:
                 "count": len(items),
             }
 
+        elif name == "context_task_add":
+            from src.models.task import Task, TaskPriority, TaskStatus
+            task = Task(
+                user_id=args["user_id"],
+                title=args["title"],
+                description=args.get("description", ""),
+                priority=TaskPriority(args.get("priority", "medium")),
+                project=args.get("project"),
+            )
+            saved = await self._postgres.task_add(task)
+            return {"task_id": saved.id, "title": saved.title, "status": saved.status, "priority": saved.priority}
+
+        elif name == "context_task_list":
+            from src.models.task import TaskPriority, TaskStatus
+            status_str = args.get("status", "pending")
+            priority_str = args.get("priority")
+            tasks = await self._postgres.task_list(
+                user_id=args["user_id"],
+                status=TaskStatus(status_str) if status_str else None,
+                priority=TaskPriority(priority_str) if priority_str else None,
+                project=args.get("project"),
+                limit=args.get("limit", 50),
+            )
+            return {
+                "tasks": [
+                    {
+                        "id": t.id,
+                        "title": t.title,
+                        "description": t.description,
+                        "status": t.status,
+                        "priority": t.priority,
+                        "project": t.project,
+                        "created_at": t.created_at.isoformat(),
+                    }
+                    for t in tasks
+                ],
+                "count": len(tasks),
+            }
+
+        elif name == "context_task_update":
+            from src.models.task import TaskPriority, TaskStatus
+            status_str = args.get("status")
+            priority_str = args.get("priority")
+            updated = await self._postgres.task_update(
+                task_id=args["task_id"],
+                user_id=args["user_id"],
+                status=TaskStatus(status_str) if status_str else None,
+                priority=TaskPriority(priority_str) if priority_str else None,
+                title=args.get("title"),
+                description=args.get("description"),
+            )
+            if not updated:
+                return {"error": f"Task {args['task_id']!r} not found"}
+            return {"task_id": updated.id, "title": updated.title, "status": updated.status, "updated_at": updated.updated_at.isoformat()}
+
         raise ValueError(f"Unknown tool: {name}")
 
     async def run_stdio(self) -> None:

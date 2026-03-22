@@ -288,5 +288,134 @@
         "user_id"
       ]
     }
+  },
+  {
+    "name": "context_task_add",
+    "description": "Add a new task to remember for later. Use this when the user mentions something they want to do later, a feature to build, or any pending work item.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Short task title"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description (optional)"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "Priority (default: medium)"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project name for filtering (optional)"
+        }
+      },
+      "required": [
+        "title",
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_task_list",
+    "description": "List pending or all tasks. Call this at the start of a session to see what work is waiting.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "done",
+            "cancelled"
+          ],
+          "description": "Filter by status (default: pending)"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "Filter by priority (optional)"
+        },
+        "project": {
+          "type": "string",
+          "description": "Filter by project (optional)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max tasks to return (default: 50)"
+        }
+      },
+      "required": [
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_task_update",
+    "description": "Update a task — change its status, priority, title, or description.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task ID to update"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "done",
+            "cancelled"
+          ],
+          "description": "New status"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "New priority"
+        },
+        "title": {
+          "type": "string",
+          "description": "Updated title"
+        },
+        "description": {
+          "type": "string",
+          "description": "Updated description"
+        }
+      },
+      "required": [
+        "task_id",
+        "user_id"
+      ]
+    }
   }
 ]
