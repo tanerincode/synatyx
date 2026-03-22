@@ -11,14 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3 -m venv /app/.venv
 
 # Cache layer: only re-install when pyproject.toml changes
-COPY pyproject.toml ./
+COPY pyproject.toml install_deps.py ./
 
 # Read deps from pyproject.toml and install into the venv.
 # Bypasses uv.lock entirely — sentence-transformers/torch/CUDA never pulled in.
-RUN /app/.venv/bin/python3 -c "\
-    import tomllib, subprocess; \
-    deps = tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']; \
-    subprocess.check_call(['/app/.venv/bin/pip', 'install', '--no-cache-dir'] + deps)"
+RUN /app/.venv/bin/python3 install_deps.py
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
