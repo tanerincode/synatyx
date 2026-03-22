@@ -15,7 +15,7 @@
         },
         "session_id": {
           "type": "string",
-          "description": "Session identifier (optional)"
+          "description": "Project namespace or session identifier. Pass the project slug (e.g. 'taty-v2') to scope retrieval to that project only and avoid cross-project contamination. Omit only for cross-project or global queries."
         },
         "top_k": {
           "type": "integer",
@@ -70,7 +70,7 @@
         },
         "session_id": {
           "type": "string",
-          "description": "Session identifier (optional)"
+          "description": "Project namespace or session identifier. Use the project slug (e.g. 'taty-v2') for project-specific facts so they are retrievable in isolation. Use a descriptive slug (e.g. 'user-preferences') for global or cross-project facts."
         },
         "metadata": {
           "type": "object",
@@ -165,7 +165,7 @@
         },
         "session_id": {
           "type": "string",
-          "description": "Session identifier (optional)"
+          "description": "Project namespace or session identifier. Use the project slug (e.g. 'taty-v2') to associate this checkpoint with a specific project."
         }
       },
       "required": [
@@ -234,7 +234,7 @@
         },
         "session_id": {
           "type": "string",
-          "description": "Session identifier (optional)"
+          "description": "Project namespace. Always set this to the project name (e.g. 'taty-v2') so ingested chunks are scoped to that project and retrievable in isolation without cross-project contamination."
         }
       },
       "required": [

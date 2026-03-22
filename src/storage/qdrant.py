@@ -65,8 +65,9 @@ class QdrantStorage:
         top_k: int = 10,
         memory_layer: MemoryLayer | None = None,
         score_threshold: float = 0.0,
+        session_id: str | None = None,
     ) -> list[ScoredContextItem]:
-        """Similarity search filtered by user_id and optionally memory_layer."""
+        """Similarity search filtered by user_id and optionally memory_layer or session_id."""
         conditions: list[Any] = [
             FieldCondition(key="user_id", match=MatchValue(value=user_id)),
             FieldCondition(key="is_deprecated", match=MatchValue(value=False)),
@@ -74,6 +75,10 @@ class QdrantStorage:
         if memory_layer:
             conditions.append(
                 FieldCondition(key="memory_layer", match=MatchValue(value=memory_layer.value))
+            )
+        if session_id:
+            conditions.append(
+                FieldCondition(key="session_id", match=MatchValue(value=session_id))
             )
 
         results = await self._client.query_points(

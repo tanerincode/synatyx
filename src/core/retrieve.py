@@ -82,6 +82,7 @@ class RetrieveService:
                 user_id=user_id,
                 top_k=candidate_k,
                 memory_layer=layer,
+                session_id=session_id,
             )
             all_items.extend(results)
 

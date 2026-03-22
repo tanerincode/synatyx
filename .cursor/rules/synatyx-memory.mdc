@@ -18,6 +18,15 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 - `context_list` — Browse stored items without vector search; filter by layer, project, or checkpoints
 - `context_ingest` — Parse any file (.docx, .pdf, .md, .py, .js, .ts, .go, …) or URL into chunks and store them automatically
 
+## Project Namespacing
+
+`session_id` doubles as a **project namespace**. Always set it to the project slug (e.g. `"taty-v2"`, `"korm-v2"`) when ingesting, storing, or retrieving project-specific content. This scopes Qdrant retrieval to that project only and prevents cross-project contamination.
+
+- **Ingesting a codebase** → `session_id = "<project-name>"` (e.g. `"taty-v2"`)
+- **Storing a project fact** → `session_id = "<project-name>"`
+- **Retrieving for a project** → `session_id = "<project-name>"` to get only that project's chunks
+- **Cross-project or global facts** → omit `session_id` or use a descriptive slug (e.g. `"user-preferences"`)
+
 ## When to Call `context_retrieve`
 
 Call `context_retrieve` at the **start of every new conversation** and whenever the user asks about something that may have been discussed before:
@@ -30,6 +39,7 @@ Call `context_retrieve` at the **start of every new conversation** and whenever 
 Parameters to use:
 - `user_id`: always `"tombastaner"`
 - `query`: a short description of what you are looking for
+- `session_id`: the project slug (e.g. `"taty-v2"`) to scope results to that project — omit only for cross-project queries
 - `top_k`: `5` for general queries, `10` for broad topic searches
 
 ## When to Call `context_store`
@@ -52,13 +62,23 @@ Parameters to use:
   - `L3` — semantic facts (stable knowledge: project structure, tech stack, how something works)
   - `L4` — procedural preferences (how the user likes to work, coding style, workflow rules)
 - `importance`: `0.0`–`1.0` (use `0.9`+ for architectural decisions, `0.5`–`0.7` for useful facts, `0.3` for minor details)
-- `session_id`: use a short slug describing the current conversation topic (e.g. `"synatyx-mcp-setup"`)
+- `session_id`: use the project slug for project-specific facts (e.g. `"taty-v2"`), or a descriptive slug for global/cross-project facts (e.g. `"user-preferences"`)
+
+## When to Call `context_ingest`
+
+Always pass `session_id` set to the project name when ingesting a codebase or document:
+
+```
+context_ingest(source=<file>, user_id=..., session_id="<project-name>", project="<project-name>")
+```
+
+This ensures all ingested chunks are retrievable in isolation per project.
 
 ## Workflow
 
-1. User opens a new chat → call `context_retrieve` with the first message as the query
+1. User opens a new chat → call `context_retrieve` with the first message as the query and `session_id` set to the active project slug
 2. Inject retrieved context into your reasoning before responding
-3. During the conversation, call `context_store` whenever a decision or fact is established
+3. During the conversation, call `context_store` with the project slug as `session_id` whenever a decision or fact is established
 4. At the end of a long session, call `context_summarize` to compress the session into L2
 
 ## General Rules
@@ -67,5 +87,5 @@ Parameters to use:
 - Do not store trivial chit-chat or greetings
 - Keep stored content concise and self-contained (2–4 sentences max per item)
 - Always retrieve before answering questions about past work or decisions
-- Use `session_id` consistently within a conversation for related stores
+- Always pass `session_id` as the project slug — never omit it for project-specific operations
 
