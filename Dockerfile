@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir uv
 
 # Copy dependency files only (cache layer)
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock* LICENSE ./
 
 # Install production deps into /app/.venv
-RUN uv sync --no-dev --no-editable
+RUN uv sync --no-dev --no-install-project
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
