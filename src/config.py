@@ -47,10 +47,12 @@ class PostgresSettings(BaseSettings):
 
 
 class EmbeddingSettings(BaseSettings):
-    provider: str = "openai"  # or "sentence-transformers"
-    model: str = "all-MiniLM-L6-v2"
+    provider: str = "openai"  # "openai" | "sentence-transformers"
+    # The embedding model name — works for any provider:
+    #   openai:                 text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
+    #   sentence-transformers:  all-MiniLM-L6-v2, all-mpnet-base-v2, …
+    model: str = "text-embedding-3-small"
     openai_api_key: str = ""
-    openai_model: str = "text-embedding-3-small"
 
     model_config = SettingsConfigDict(env_prefix="EMBEDDING_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 

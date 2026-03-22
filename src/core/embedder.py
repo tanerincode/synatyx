@@ -52,6 +52,6 @@ def get_embedder() -> EmbedderProtocol:
     """Return the configured embedder singleton."""
     cfg = settings.embedding
     if cfg.provider == "openai":
-        return OpenAIEmbedder(api_key=cfg.openai_api_key, model=cfg.openai_model)
+        return OpenAIEmbedder(api_key=cfg.openai_api_key, model=cfg.model)
     return SentenceTransformerEmbedder(model_name=cfg.model)
 
