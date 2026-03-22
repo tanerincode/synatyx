@@ -1,69 +1,102 @@
+<div align="center">
+
 # Synatyx
 
-**Synatyx** is an open-source, production-ready **Context Engine** for LLMs — a smart memory layer that gives stateless language models persistent, structured, and relevance-scored memory across conversations.
+**A production-ready Context Engine for LLMs.**
+Persistent, structured, relevance-scored memory — across every conversation.
 
-## Why Synatyx?
+[![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-11%20tools-purple)](docs/local-setup.md)
+[![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker&logoColor=white)](docker-compose.yml)
 
-LLMs forget everything between conversations. Synatyx solves this with a layered memory architecture that collects past knowledge, scores it by relevance, compresses it to fit the token budget, and feeds it back to the model — automatically.
+</div>
 
-## Memory Architecture
+---
 
-| Layer | Name | Description | Token Budget |
-|---|---|---|---|
-| L1 | Working Memory | Last 10–20 messages, always included | ~4k |
-| L2 | Episodic Memory | Session summaries | ~1k |
-| L3 | Semantic Memory | Vector similarity search from past conversations | ~2k |
-| L4 | Procedural Memory | Permanent user preferences and rules | ~500 |
+## The Problem
+
+LLMs forget everything between conversations. Every new session starts from zero — no memory of past decisions, preferences, or context. Synatyx solves this.
+
+## How It Works
+
+Synatyx sits between your IDE and any LLM. It intercepts conversations, stores knowledge in a 4-layer memory architecture, scores everything by relevance, and feeds the right context back automatically — within your token budget.
+
+```
+Your IDE  ──►  Synatyx (MCP)  ──►  LLM
+                   │
+           ┌───────┴────────┐
+           │  4-Layer Memory │
+           │  L1 Redis       │  working memory  (~4k tokens)
+           │  L2 Qdrant      │  session summaries (~1k tokens)
+           │  L3 Qdrant      │  semantic knowledge (~2k tokens)
+           │  L4 Qdrant      │  permanent rules  (~500 tokens)
+           └────────────────┘
+```
+
+---
 
 ## Features
 
-- **8 MCP Tools** — store, retrieve, summarize, score, checkpoint, deprecate, list, ingest
-- **Parser System** — ingest `.docx`, `.pdf`, `.md`, code files (`.py`, `.ts`, `.go`, …), and any URL
-- **4-Layer Memory** — L1 Redis working memory, L2–L4 Qdrant vector store
-- **Checkpoint System** — named pinned snapshots with deprecation (never deleted)
-- **Relevance Scoring** — recency, semantic similarity, importance, and user signal combined
-- **Token Budget Manager** — automatically allocates context space per memory layer
-- **GraphQL API** — queries, mutations, and real-time subscriptions for external services
-- **Async First** — built on Python asyncio + FastAPI
-- **Self-hosted** — no vendor lock-in, runs fully on your infrastructure
+- **11 MCP Tools** — store, retrieve, summarize, score, checkpoint, deprecate, list, ingest, task management
+- **4-Layer Memory** — Redis (L1 working) + Qdrant (L2–L4 vector) + Postgres (sessions, tasks, audit)
+- **Parser System** — ingest `.docx`, `.pdf`, `.md`, source code (`.py`, `.ts`, `.go`, `.rs`, …), and any URL
+- **Checkpoint System** — named, pinned decision snapshots with soft deprecation (never deleted)
+- **Task Mechanism** — persistent cross-session task tracking with priority and status
+- **Hybrid Retrieval** — dense vectors + BM25 sparse + MMR diversity, fused into a single ranked list
+- **Token Budget Manager** — auto-allocates context per layer, respects model limits
+- **GraphQL API** — queries, mutations, real-time subscriptions for external services
+- **Production Ready** — Docker Compose, Dockerfile, Alembic migrations, health checks, swap config
 
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Core | Python 3.12 + asyncio |
-| MCP Transport | Anthropic MCP SDK (JSON-RPC 2.0 / stdio) |
-| GraphQL | Strawberry (async-first, type-safe) |
-| Vector DB | Qdrant |
-| Working Memory | Redis |
-| Metadata DB | PostgreSQL + Alembic |
-| Observability | OpenTelemetry |
+---
 
 ## MCP Tools
 
-| Tool | Description |
+| Category | Tool | What it does |
+|---|---|---|
+| **Memory** | `context_store` | Save a fact, decision, or note |
+| | `context_retrieve` | Hybrid semantic search across all layers |
+| | `context_summarize` | Compress L1 → L2 episodic vector via LLM |
+| | `context_score` | Re-rank a list of items against a query |
+| **Knowledge** | `context_checkpoint` | Named pinned snapshot — importance = 1.0 |
+| | `context_deprecate` | Mark superseded items — never deleted |
+| | `context_list` | Browse stored items without vector search |
+| | `context_ingest` | Parse any file or URL → auto-chunk → store |
+| **Tasks** | `context_task_add` | Add a task to remember for later |
+| | `context_task_list` | List tasks by status, priority, project |
+| | `context_task_update` | Update status, priority, or description |
+
+---
+
+## Tech Stack
+
+| Component | Technology |
 |---|---|
-| `context_store` | Save a fact or decision to memory |
-| `context_retrieve` | Semantic search across all memory layers |
-| `context_summarize` | Compress L1 working memory → L2 episodic vector |
-| `context_score` | Re-rank a list of items by relevance |
-| `context_checkpoint` | Save a named, pinned snapshot (importance = 1.0) |
-| `context_deprecate` | Mark an item as superseded — never deleted |
-| `context_list` | Browse items without vector search |
-| `context_ingest` | Parse any file or URL and store as chunks |
+| Core | Python 3.12 + asyncio |
+| MCP Transport | Anthropic MCP SDK — JSON-RPC 2.0 / stdio |
+| GraphQL | Strawberry — async-first, type-safe |
+| Vector DB | Qdrant |
+| Working Memory | Redis |
+| Metadata + Tasks | PostgreSQL + Alembic |
+| Embeddings + LLM | OpenAI `text-embedding-3-small` + `gpt-4o-mini` |
 
-## Getting Started
+---
 
-→ **[Local Setup Guide](docs/local-setup.md)**
+## Quick Start
 
-Quick start:
+→ **[Full Local Setup Guide](docs/local-setup.md)**
 
 ```bash
-cp .env.example .env        # add your EMBEDDING_OPENAI_API_KEY
+git clone https://github.com/tanerincode/synatyx.git && cd synatyx
+cp .env.example .env          # set EMBEDDING_OPENAI_API_KEY
 docker compose up -d qdrant redis postgres
 uv sync && alembic upgrade head
-python main.py
+python main.py                # starts MCP stdio server
 ```
+
+Connect to Augment, Cursor, or Claude Code — see [docs/local-setup.md](docs/local-setup.md) for IDE config.
+
+---
 
 ## Project Structure
 
@@ -76,16 +109,18 @@ synatyx/
 │   │   ├── mcp/       # MCP stdio server, tools.json, adapters
 │   │   └── graphql/   # Strawberry schema, resolvers, subscriptions
 │   ├── storage/       # Qdrant, Redis, PostgreSQL clients
-│   └── models/        # Pydantic models
+│   └── models/        # context, session, task, memory layer
 ├── docs/
 │   └── local-setup.md
-├── tests/
+├── alembic/           # database migrations
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml
 ```
 
+---
+
 ## License
 
-MIT
+MIT © [Taner Bastaner](https://github.com/tanerincode)
 
