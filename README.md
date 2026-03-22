@@ -7,7 +7,7 @@ Persistent, structured, relevance-scored memory — across every conversation.
 
 [![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-11%20tools-purple)](docs/local-setup.md)
+[![MCP](https://img.shields.io/badge/MCP-13%20tools-purple)](docs/local-setup.md)
 [![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker&logoColor=white)](docker-compose.yml)
 
 </div>
@@ -57,7 +57,7 @@ flowchart LR
 
 ## Features
 
-- **11 MCP Tools** — store, retrieve, summarize, score, checkpoint, deprecate, list, ingest, task management
+- **13 MCP Tools** — store, retrieve, summarize, score, checkpoint, deprecate, list, ingest, task management, multi-project support
 - **4-Layer Memory** — Redis L1 + Qdrant L2–L4 + Postgres sessions, tasks, audit log
 - **Parser System** — ingest `.docx`, `.pdf`, `.md`, source code (`.py`, `.ts`, `.go`, `.rs`, …), any URL
 - **Checkpoint System** — named pinned snapshots with soft deprecation, never deleted
@@ -72,6 +72,8 @@ flowchart LR
 
 | Category | Tool | What it does |
 |---|---|---|
+| **Project** | `context_set_project` | Activate a project — all ops scoped to `ctx_<slug>` |
+| | `context_get_project` | Get active project or detect from workspace folder |
 | **Memory** | `context_store` | Save a fact, decision, or note |
 | | `context_retrieve` | Hybrid semantic search across all layers |
 | | `context_summarize` | Compress L1 → L2 episodic vector via LLM |
@@ -96,7 +98,7 @@ flowchart LR
 | Vector DB | Qdrant |
 | Working Memory | Redis |
 | Metadata + Tasks | PostgreSQL + Alembic |
-| Embeddings + LLM | OpenAI `text-embedding-3-small` + `gpt-4o-mini` |
+| Embeddings + LLM | OpenAI / sentence-transformers (`EMBEDDING_MODEL`) + `gpt-4o-mini` |
 
 ---
 
@@ -106,10 +108,8 @@ flowchart LR
 
 ```bash
 git clone https://github.com/tanerincode/synatyx.git && cd synatyx
-cp .env.example .env          # set EMBEDDING_OPENAI_API_KEY
-docker compose up -d qdrant redis postgres
-uv sync && alembic upgrade head
-python main.py
+cp .env.example .env   # set EMBEDDING_OPENAI_API_KEY
+make                   # starts all services + tails logs
 ```
 
 ---
@@ -119,16 +119,22 @@ python main.py
 ```
 synatyx/
 ├── src/
-│   ├── core/          # retrieve, store, summarize, score, ingest, budget
+│   ├── core/          # retrieve, store, summarize, score, ingest, budget, project
 │   ├── parsers/       # docx, pdf, markdown, code, web + registry
 │   ├── transports/
 │   │   ├── mcp/       # MCP stdio server, tools.json, adapters
 │   │   └── graphql/   # Strawberry schema, resolvers, subscriptions
 │   ├── storage/       # Qdrant, Redis, PostgreSQL clients
 │   └── models/        # context, session, task, memory layer
+├── .claude/
+│   ├── CLAUDE.md      # Claude Code rules
+│   └── skills/        # Claude Agent Skills
+├── .cursor/rules/     # Cursor rules
+├── .augment/rules/    # Augment rules
 ├── docs/
 │   └── local-setup.md
 ├── alembic/           # database migrations
+├── Makefile
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml
