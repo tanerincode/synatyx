@@ -49,6 +49,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: context_engine
+      POSTGRES_USER: context_engine
+      POSTGRES_PASSWORD: context_engine
       POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
     entrypoint: ["alembic", "upgrade", "head"]
 
@@ -61,6 +66,11 @@ services:
       RUN_MODE: gc
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: context_engine
+      POSTGRES_USER: context_engine
+      POSTGRES_PASSWORD: context_engine
       POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
     depends_on:
       qdrant:
@@ -91,6 +101,11 @@ services:
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
       REDIS_URL: redis://redis:6379/0
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: context_engine
+      POSTGRES_USER: context_engine
+      POSTGRES_PASSWORD: context_engine
       POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
 
 volumes:
