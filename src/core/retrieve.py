@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from src.core.bm25 import BM25Index
 from src.core.budget import BudgetAllocation, BudgetManager
@@ -87,6 +91,10 @@ class RetrieveService:
                 project=project,
             )
             all_items.extend(results)
+            # Fire-and-forget access tracking — update last_accessed_at in Qdrant
+            if results:
+                hit_ids = [r.id for r in results]
+                asyncio.create_task(self._track_access(hit_ids))
 
         # Deduplicate
         seen: set[str] = set()
@@ -152,4 +160,11 @@ class RetrieveService:
             total_tokens=total_tokens,
             suggested_budget=allocation.to_dict(),
         )
+
+    async def _track_access(self, item_ids: list[str]) -> None:
+        """Fire-and-forget: update last_accessed_at on retrieved Qdrant points."""
+        try:
+            await self._qdrant.touch(item_ids)
+        except Exception as exc:
+            logger.debug("Access tracking failed (non-critical): %s", exc)
 

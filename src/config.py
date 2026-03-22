@@ -13,6 +13,7 @@ class RunMode(str, Enum):
     MCP = "mcp"           # stdio MCP server only (default)
     GRAPHQL = "graphql"   # FastAPI GraphQL + SSE + HTTP MCP endpoint
     BOTH = "both"         # FastAPI + stdio MCP concurrently
+    GC = "gc"             # Garbage collection daemon
 
 
 class QdrantSettings(BaseSettings):
@@ -57,6 +58,17 @@ class EmbeddingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="EMBEDDING_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 
 
+class GCSettings(BaseSettings):
+    enabled: bool = True
+    run_interval_hours: int = 24
+    l2_base_ttl_days: int = 30
+    l3_base_ttl_days: int = 90
+    grace_period_days: int = 30       # days between soft deprecation and hard delete
+    importance_multiplier: float = 3.0  # effective_ttl = base × (1 + importance × multiplier)
+
+    model_config = SettingsConfigDict(env_prefix="GC_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+
+
 class Settings(BaseSettings):
     app_name: str = "Synatyx Context Engine"
     debug: bool = False
@@ -69,6 +81,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    gc: GCSettings = Field(default_factory=GCSettings)
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

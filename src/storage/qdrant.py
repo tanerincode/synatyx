@@ -191,9 +191,27 @@ class QdrantStorage:
             ),
         )
 
+    async def touch(self, item_ids: list[str]) -> None:
+        """Update last_accessed_at for retrieved items — used by access tracking."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        for item_id in item_ids:
+            try:
+                await self._client.set_payload(
+                    collection_name=self._collection_name,
+                    payload={"last_accessed_at": now},
+                    points=[str(uuid.UUID(item_id))],
+                )
+            except Exception:
+                pass  # never block retrieval on touch failures
+
     async def deprecate(self, item_id: str, reason: str | None = None) -> None:
         """Mark a point as deprecated by updating its payload in-place."""
-        payload: dict[str, Any] = {"is_deprecated": True}
+        from datetime import datetime, timezone
+        payload: dict[str, Any] = {
+            "is_deprecated": True,
+            "deprecated_at": datetime.now(timezone.utc).isoformat(),
+        }
         if reason:
             payload["deprecated_reason"] = reason
         await self._client.set_payload(
@@ -201,6 +219,59 @@ class QdrantStorage:
             payload=payload,
             points=[str(uuid.UUID(item_id))],
         )
+
+    async def scan_all_items(
+        self,
+        memory_layer: MemoryLayer | None = None,
+        include_deprecated: bool = False,
+        limit: int = 1000,
+        offset: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Scroll ALL items in the collection without user_id filter — for GC use only.
+
+        Returns (items_payload_list, next_offset) for pagination.
+        """
+        conditions: list[Any] = []
+        if not include_deprecated:
+            conditions.append(
+                FieldCondition(key="is_deprecated", match=MatchValue(value=False))
+            )
+        if memory_layer:
+            conditions.append(
+                FieldCondition(key="memory_layer", match=MatchValue(value=memory_layer.value))
+            )
+
+        scroll_filter = Filter(must=conditions) if conditions else None
+
+        results, next_page = await self._client.scroll(
+            collection_name=self._collection_name,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        items = []
+        for r in results:
+            p = r.payload or {}
+            p["_id"] = str(r.id)
+            items.append(p)
+
+        next_offset = str(next_page) if next_page else None
+        return items, next_offset
+
+    async def hard_delete(self, item_id: str) -> None:
+        """Permanently remove a point from the collection."""
+        await self._client.delete(
+            collection_name=self._collection_name,
+            points_selector=[str(uuid.UUID(item_id))],
+        )
+
+    async def get_all_collections(self) -> list[str]:
+        """Return all collection names — used by GC to iterate over all projects."""
+        collections = await self._client.get_collections()
+        return [c.name for c in collections.collections]
 
     async def list_items(
         self,

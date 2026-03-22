@@ -52,6 +52,23 @@ services:
       POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
     entrypoint: ["alembic", "upgrade", "head"]
 
+  synatyx-gc:
+    build: .
+    container_name: synatyx_gc
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUN_MODE: gc
+    depends_on:
+      qdrant:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - synatyx_network
+
   synatyx:
     build: .
     container_name: synatyx

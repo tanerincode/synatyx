@@ -101,6 +101,43 @@ def main() -> None:
 
         _run_graphql(host, port, debug)
 
+    elif mode == RunMode.GC:
+        logger.info("Running GC daemon")
+        asyncio.run(_run_gc())
+
+
+async def _run_gc() -> None:
+    from src.core.gc import GarbageCollector
+    from src.config import settings
+    from src.storage.postgres import PostgresStorage
+    from src.storage.qdrant import QdrantStorage
+
+    interval_seconds = settings.gc.run_interval_hours * 3600
+    logger.info(
+        "GC daemon started — interval=%dh  L2_ttl=%dd  L3_ttl=%dd",
+        settings.gc.run_interval_hours,
+        settings.gc.l2_base_ttl_days,
+        settings.gc.l3_base_ttl_days,
+    )
+
+    qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port, collection_name="ctx_system")
+    postgres = PostgresStorage(dsn=settings.postgres.dsn)
+    await _connect_with_retry("Qdrant", qdrant.init_collection)
+    await _connect_with_retry("PostgreSQL", postgres.connect)
+
+    gc = GarbageCollector(qdrant=qdrant, postgres=postgres, settings=settings.gc)
+
+    while True:
+        if settings.gc.enabled:
+            try:
+                summary = await gc.run_once()
+                logger.info("GC pass complete: %s", summary)
+            except Exception as exc:
+                logger.error("GC pass failed: %s", exc, exc_info=True)
+        else:
+            logger.info("GC disabled — sleeping")
+        await asyncio.sleep(interval_seconds)
+
 
 if __name__ == "__main__":
     main()
