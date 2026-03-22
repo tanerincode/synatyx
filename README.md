@@ -138,5 +138,5 @@ synatyx/
 
 ## License
 
-MIT © [Taner Bastaner](https://github.com/tanerincode)
+MIT © [Taner Tombas](https://github.com/tanerincode)
 
