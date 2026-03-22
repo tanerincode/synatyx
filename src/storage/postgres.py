@@ -10,6 +10,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.config import settings
 from src.models.session import KeyEntity, Session, SessionStatus
+from src.models.skill import Skill, _slugify
 from src.models.task import Task, TaskPriority, TaskStatus
 
 
@@ -54,6 +55,21 @@ class AuditLogRow(Base):
     action: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SkillRow(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    frontmatter: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class TaskRow(Base):
@@ -260,6 +276,78 @@ class PostgresStorage:
             status=TaskStatus(row.status),
             priority=TaskPriority(row.priority),
             project=row.project,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    # ── Skill CRUD ───────────────────────────────────────────────────────────
+
+    async def skill_store(self, skill: Skill) -> Skill:
+        async with self._session_factory() as session:
+            row = SkillRow(
+                id=skill.id,
+                name=skill.name,
+                slug=skill.slug,
+                description=skill.description,
+                content=skill.content,
+                frontmatter=skill.frontmatter,
+                project=skill.project,
+                user_id=skill.user_id,
+            )
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+            return self._row_to_skill(row)
+
+    async def skill_get_by_name(self, name: str, user_id: str, project: str | None = None) -> Skill | None:
+        async with self._session_factory() as session:
+            slug = _slugify(name)
+            stmt = select(SkillRow).where(
+                (SkillRow.user_id == user_id) &
+                ((SkillRow.name == name) | (SkillRow.slug == slug))
+            )
+            if project is not None:
+                stmt = stmt.where(SkillRow.project == project)
+            result = await session.execute(stmt)
+            row = result.scalars().first()
+        return self._row_to_skill(row) if row else None
+
+    async def skill_get_by_id(self, skill_id: str, user_id: str) -> Skill | None:
+        async with self._session_factory() as session:
+            row = await session.get(SkillRow, skill_id)
+        if row and row.user_id == user_id:
+            return self._row_to_skill(row)
+        return None
+
+    async def skill_list(self, user_id: str, project: str | None = None, limit: int = 50) -> list[Skill]:
+        async with self._session_factory() as session:
+            stmt = select(SkillRow).where(SkillRow.user_id == user_id)
+            if project is not None:
+                stmt = stmt.where(SkillRow.project == project)
+            stmt = stmt.order_by(SkillRow.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._row_to_skill(r) for r in result.scalars().all()]
+
+    async def skill_delete(self, skill_id: str, user_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(SkillRow, skill_id)
+            if not row or row.user_id != user_id:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
+
+    @staticmethod
+    def _row_to_skill(row: SkillRow) -> Skill:
+        return Skill(
+            id=row.id,
+            name=row.name,
+            slug=row.slug,
+            description=row.description,
+            content=row.content,
+            frontmatter=row.frontmatter or {},
+            project=row.project,
+            user_id=row.user_id,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

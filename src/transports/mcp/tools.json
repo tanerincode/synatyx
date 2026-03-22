@@ -454,5 +454,143 @@
         "user_id"
       ]
     }
+  },
+  {
+    "name": "context_skill_store",
+    "description": "Save a skill definition. Writes full content to PostgreSQL and embeds only the description into Qdrant L3 for RAG matching.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Skill name (e.g. 'nodejs-developer')"
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line description used for RAG matching"
+        },
+        "content": {
+          "type": "string",
+          "description": "Full skill content (system prompt + instructions)"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project scope (optional, null = global)"
+        },
+        "frontmatter": {
+          "type": "object",
+          "description": "Parsed YAML frontmatter fields (optional)"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "content",
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_skill_find",
+    "description": "RAG search for the best matching skill(s) for a given task. Embeds the query, searches Qdrant L3 filtered by type='skill', then fetches full content from PostgreSQL.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Task description to match against stored skills"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Limit search to a specific project (optional)"
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Max number of skills to return (default: 3)"
+        }
+      },
+      "required": [
+        "query",
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_skill_get",
+    "description": "Fetch a skill by exact name or slug from PostgreSQL.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Skill name or slug to look up"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project scope filter (optional)"
+        }
+      },
+      "required": [
+        "name",
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_skill_list",
+    "description": "List all stored skills for the user, optionally scoped to a project.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Filter by project (optional)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max skills to return (default: 50)"
+        }
+      },
+      "required": [
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_skill_delete",
+    "description": "Remove a skill from PostgreSQL and deprecate its Qdrant embedding.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Skill name or slug to delete"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        }
+      },
+      "required": [
+        "name",
+        "user_id"
+      ]
+    }
   }
 ]

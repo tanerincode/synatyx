@@ -79,6 +79,40 @@ class QdrantStorage:
         await self._client.upsert(collection_name=self._collection_name, points=[point])
         return item.id
 
+    async def skill_upsert(
+        self,
+        skill_id: str,
+        name: str,
+        slug: str,
+        vector: list[float],
+        user_id: str,
+        project: str | None = None,
+    ) -> None:
+        """Store a skill description embedding into L3 with type='skill' payload."""
+        point = PointStruct(
+            id=str(uuid.UUID(skill_id)),
+            vector=vector,
+            payload={
+                "user_id": user_id,
+                "session_id": None,
+                "project": project,
+                "content": name,
+                "memory_layer": MemoryLayer.L3.value,
+                "importance": 0.8,
+                "is_pinned": False,
+                "is_deprecated": False,
+                "type": "skill",
+                "metadata": {
+                    "skill_id": skill_id,
+                    "name": name,
+                    "slug": slug,
+                    "project": project,
+                    "type": "skill",
+                },
+            },
+        )
+        await self._client.upsert(collection_name=self._collection_name, points=[point])
+
     async def search(
         self,
         query_vector: list[float],
@@ -88,6 +122,7 @@ class QdrantStorage:
         score_threshold: float = 0.0,
         session_id: str | None = None,
         project: str | None = None,
+        type_filter: str | None = None,
     ) -> list[ScoredContextItem]:
         """Similarity search filtered by user_id and optionally memory_layer or session_id."""
         conditions: list[Any] = [
@@ -105,6 +140,10 @@ class QdrantStorage:
         if project:
             conditions.append(
                 FieldCondition(key="project", match=MatchValue(value=project))
+            )
+        if type_filter:
+            conditions.append(
+                FieldCondition(key="type", match=MatchValue(value=type_filter))
             )
 
         results = await self._client.query_points(

@@ -130,6 +130,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## 6. Available MCP tools
 
+→ **[Full MCP Tools Reference](mcp-tools.md)**
+
 | Category | Tool | What it does |
 |---|---|---|
 | **Project** | `context_set_project` | Activate a project — all ops scoped to `ctx_<slug>` |
@@ -145,6 +147,11 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | **Tasks** | `context_task_add` | Add a task to remember for later |
 | | `context_task_list` | List tasks by status, priority, project |
 | | `context_task_update` | Update status, priority, or description |
+| **Skills** | `context_skill_store` | Save an agent skill definition (PG + Qdrant L3) |
+| | `context_skill_find` | RAG search for the best matching skill |
+| | `context_skill_get` | Fetch a skill by name or slug |
+| | `context_skill_list` | List all stored skills |
+| | `context_skill_delete` | Remove a skill + deprecate its embedding |
 
 ---
 

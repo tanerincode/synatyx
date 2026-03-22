@@ -12,6 +12,7 @@ from src.core.ingest import IngestService
 from src.core.project import ProjectManager
 from src.core.retrieve import RetrieveService
 from src.core.score import score_items
+from src.core.skill import SkillService
 from src.core.store import StoreService
 from src.core.summarize import SummarizeService
 from src.models.memory_layer import MemoryLayer
@@ -42,7 +43,16 @@ class SynatyxMCPServer:
         # Service cache keyed by collection_name — avoids re-creating services on every call
         self._svc_cache: dict[str, tuple[RetrieveService, StoreService, IngestService]] = {}
         self._budget = BudgetManager()
+        self._skill_svc_cache: dict[str, SkillService] = {}
         self._register_handlers()
+
+    async def _get_skill_service(self, user_id: str) -> SkillService:
+        """Return a SkillService backed by the active project's Qdrant collection."""
+        storage, _, _, _, _ = await self._get_services(user_id)
+        key = storage.collection_name
+        if key not in self._skill_svc_cache:
+            self._skill_svc_cache[key] = SkillService(storage, self._postgres)
+        return self._skill_svc_cache[key]
 
     async def _get_l4_services(self) -> tuple[QdrantStorage, StoreService, RetrieveService]:
         """Return services backed by the shared ctx_users collection (L4 only)."""
@@ -334,6 +344,74 @@ class SynatyxMCPServer:
             if not updated:
                 return {"error": f"Task {args['task_id']!r} not found"}
             return {"task_id": updated.id, "title": updated.title, "status": updated.status, "updated_at": updated.updated_at.isoformat()}
+
+        elif name == "context_skill_store":
+            svc = await self._get_skill_service(user_id)
+            skill = await svc.store(
+                name=args["name"],
+                description=args["description"],
+                content=args["content"],
+                user_id=user_id,
+                project=args.get("project"),
+                frontmatter=args.get("frontmatter"),
+            )
+            return {
+                "skill_id": skill.id,
+                "name": skill.name,
+                "slug": skill.slug,
+                "project": skill.project,
+                "created_at": skill.created_at.isoformat(),
+            }
+
+        elif name == "context_skill_find":
+            svc = await self._get_skill_service(user_id)
+            results = await svc.find(
+                query=args["query"],
+                user_id=user_id,
+                project=args.get("project"),
+                top_k=args.get("top_k", 3),
+            )
+            return {"skills": results, "count": len(results)}
+
+        elif name == "context_skill_get":
+            svc = await self._get_skill_service(user_id)
+            skill = await svc.get(
+                name=args["name"],
+                user_id=user_id,
+                project=args.get("project"),
+            )
+            if not skill:
+                return {"error": f"Skill {args['name']!r} not found"}
+            return {
+                "name": skill.name,
+                "slug": skill.slug,
+                "description": skill.description,
+                "content": skill.content,
+                "frontmatter": skill.frontmatter,
+                "project": skill.project,
+            }
+
+        elif name == "context_skill_list":
+            svc = await self._get_skill_service(user_id)
+            skills = await svc.list_skills(
+                user_id=user_id,
+                project=args.get("project"),
+                limit=args.get("limit", 50),
+            )
+            return {
+                "skills": [
+                    {"name": s.name, "slug": s.slug, "description": s.description, "project": s.project}
+                    for s in skills
+                ],
+                "count": len(skills),
+            }
+
+        elif name == "context_skill_delete":
+            svc = await self._get_skill_service(user_id)
+            deleted = await svc.delete(name=args["name"], user_id=user_id)
+            if not deleted:
+                return {"error": f"Skill {args['name']!r} not found"}
+            return {"deleted": True, "name": args["name"]}
 
         raise ValueError(f"Unknown tool: {name}")
 
