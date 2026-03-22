@@ -63,7 +63,6 @@ flowchart LR
 |-----------|-----------|
 | Core | Python 3.12 + asyncio |
 | MCP Transport | Anthropic MCP SDK — JSON-RPC 2.0 / stdio |
-| GraphQL | Strawberry — async-first, type-safe |
 | Vector DB | Qdrant |
 | Working Memory | Redis |
 | Metadata + Tasks | PostgreSQL + Alembic |
@@ -80,8 +79,7 @@ synatyx/
 │   ├── core/          # retrieve, store, summarize, score, ingest, skill, budget, project
 │   ├── parsers/       # docx, pdf, markdown, code, web + registry
 │   ├── transports/
-│   │   ├── mcp/       # MCP stdio server, tools.json, adapters
-│   │   └── graphql/   # Strawberry schema, resolvers, subscriptions
+│   │   └── mcp/       # MCP stdio server, tools.json, adapters
 │   ├── storage/       # Qdrant, Redis, PostgreSQL clients
 │   └── models/        # context, session, task, skill, memory layer
 ├── .claude/

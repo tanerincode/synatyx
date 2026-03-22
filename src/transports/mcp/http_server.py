@@ -20,9 +20,7 @@ from src.transports.mcp.server import SynatyxMCPServer
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# FastMCP instance
-# SynatyxMCPServer (with all tool handlers) is injected at startup via
-# lifespan so FastMCP's SSE transport carries our full tool set.
+# FastMCP instance — host/port resolved from env so Docker can override them.
 # ---------------------------------------------------------------------------
 
 _host = os.getenv("HOST", "0.0.0.0")
@@ -38,7 +36,10 @@ mcp = FastMCP(
 
 
 # ---------------------------------------------------------------------------
-# Lifespan — init storage once at app startup, inject into FastMCP
+# Lifespan — connect to all storage backends once, inject into FastMCP.
+# SynatyxMCPServer registers every tool handler on the low-level mcp.Server.
+# We swap FastMCP's internal server so the SSE transport carries the full
+# tool set without re-registering anything.
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
@@ -56,13 +57,12 @@ async def lifespan(_app: Starlette) -> AsyncIterator[None]:
     postgres = PostgresStorage(dsn=settings.postgres.dsn)
     await postgres.connect()
 
-    # Build the full MCP server (registers all ~20 tools on the low-level Server)
-    # then inject it into FastMCP — handle_sse reads mcp._mcp_server at
-    # request time so the injection is safe before any request arrives.
     synatyx = SynatyxMCPServer(qdrant, redis, postgres)
+    # Inject the fully-wired low-level Server into FastMCP so that handle_sse
+    # picks it up on every incoming request.
     mcp._mcp_server = synatyx._server
 
-    logger.info("Synatyx tools injected into FastMCP — ready")
+    logger.info("Synatyx MCP HTTP server ready on %s:%d", _host, _port)
 
     yield
 
@@ -80,7 +80,7 @@ async def health(_request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
-# ASGI app — FastMCP SSE routes + health, wrapped with our lifespan
+# ASGI app — FastMCP SSE routes + /health, wrapped with lifespan.
 # ---------------------------------------------------------------------------
 
 _sse_app = mcp.sse_app()

@@ -12,8 +12,6 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 class RunMode(str, Enum):
     MCP = "mcp"           # stdio MCP server only (default)
     MCP_HTTP = "mcp-http" # FastMCP over HTTP/SSE — for server deployment
-    GRAPHQL = "graphql"   # FastAPI GraphQL + SSE + HTTP MCP endpoint
-    BOTH = "both"         # FastAPI + stdio MCP concurrently
     GC = "gc"             # Garbage collection daemon
 
 

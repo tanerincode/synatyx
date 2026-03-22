@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import threading
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -18,21 +17,6 @@ def _run_mcp_http(host: str, port: int, debug: bool) -> None:
     logger.info("Health   : http://%s:%d/health", host, port)
     uvicorn.run(
         "src.transports.mcp.http_server:app",
-        host=host,
-        port=port,
-        reload=debug,
-        log_level=os.getenv("LOG_LEVEL", "info").lower(),
-    )
-
-
-def _run_graphql(host: str, port: int, debug: bool) -> None:
-    import uvicorn
-    logger.info("GraphQL : http://%s:%d/graphql", host, port)
-    logger.info("SSE     : http://%s:%d/v1/stream/events?user_id=<id>", host, port)
-    logger.info("MCP HTTP: http://%s:%d/mcp/sse", host, port)
-    logger.info("Health  : http://%s:%d/health", host, port)
-    uvicorn.run(
-        "src.transports.graphql.server:app",
         host=host,
         port=port,
         reload=debug,
@@ -83,13 +67,6 @@ async def _run_mcp_stdio() -> None:
 def main() -> None:
     from src.config import settings, RunMode
 
-    # Migrations are run by the Dockerfile entrypoint (`alembic upgrade head`)
-    # inside the container where postgres is reachable via the internal Docker network.
-    # Do NOT run them here — postgres is not exposed on the host.
-
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    debug = settings.debug
     mode = settings.run_mode
 
     logger.info("Synatyx Context Engine — mode: %s", mode.value)
@@ -100,23 +77,9 @@ def main() -> None:
 
     elif mode == RunMode.MCP_HTTP:
         logger.info("Running MCP HTTP/SSE server only")
-        _run_mcp_http(host, port, debug)
-
-    elif mode == RunMode.GRAPHQL:
-        logger.info("Running GraphQL + HTTP server only")
-        _run_graphql(host, port, debug)
-
-    elif mode == RunMode.BOTH:
-        logger.info("Running GraphQL + HTTP server AND MCP stdio concurrently")
-
-        # Run MCP stdio in a background thread (has its own event loop)
-        def _mcp_thread():
-            asyncio.run(_run_mcp_stdio())
-
-        t = threading.Thread(target=_mcp_thread, daemon=True)
-        t.start()
-
-        _run_graphql(host, port, debug)
+        host = os.getenv("HOST", "0.0.0.0")
+        port = int(os.getenv("PORT", "9000"))
+        _run_mcp_http(host, port, settings.debug)
 
     elif mode == RunMode.GC:
         logger.info("Running GC daemon")

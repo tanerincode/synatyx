@@ -83,35 +83,6 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  synatyx-mcp:
-    build: .
-    container_name: synatyx_mcp
-    env_file: .env
-    restart: unless-stopped
-    depends_on:
-      qdrant:
-        condition: service_started
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    ports:
-      - "9000:9000"
-    environment:
-      RUN_MODE: mcp-http
-      PORT: "9000"
-      QDRANT_HOST: qdrant
-      QDRANT_PORT: 6333
-      REDIS_URL: redis://redis:6379/0
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: context_engine
-      POSTGRES_USER: context_engine
-      POSTGRES_PASSWORD: context_engine
-      POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
-
 volumes:
   qdrant_data:
   redis_data:

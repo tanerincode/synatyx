@@ -92,7 +92,7 @@ services:
       migrate:
         condition: service_completed_successfully
     ports:
-      - "9000:9000"
+      - "9001:9000"
     environment:
       RUN_MODE: mcp-http
       PORT: "9000"
