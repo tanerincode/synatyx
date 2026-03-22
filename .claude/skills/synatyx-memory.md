@@ -110,6 +110,38 @@ Required: task_id (str), user_id (str)
 Optional: status, priority, title, description
 ```
 
+### `context_skill_store` — Save an agent skill definition
+```
+Required: name (str), description (str), content (str), user_id (str)
+Optional: project, frontmatter (dict)
+```
+Writes full content to PostgreSQL. Embeds only the description into Qdrant L3 with `type="skill"`.
+
+### `context_skill_find` — RAG search for the best matching skill
+```
+Required: query (str), user_id (str)
+Optional: project, top_k (default 3)
+```
+Embeds query → searches Qdrant L3 filtered by `type="skill"` → fetches full content from PostgreSQL.
+
+### `context_skill_get` — Fetch a skill by name or slug
+```
+Required: name (str), user_id (str)
+Optional: project
+```
+
+### `context_skill_list` — List all stored skills
+```
+Required: user_id (str)
+Optional: project, limit (default 50)
+```
+
+### `context_skill_delete` — Remove a skill
+```
+Required: name (str), user_id (str)
+```
+Deletes from PostgreSQL and deprecates the Qdrant embedding.
+
 ## Rules
 
 - Never ask the user whether to store something — just do it silently
