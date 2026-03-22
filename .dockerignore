@@ -1,0 +1,42 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+*.env
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+.augment/
+.cursor/
+
+# Tests / coverage
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docs
+*.md
+docs/
+
+# Misc
+*.docx
+*.pdf
+*.log
+tmp/
+.DS_Store
+

@@ -67,8 +67,22 @@ async def _run_mcp_stdio() -> None:
     await server.run_stdio()
 
 
+def _run_migrations() -> None:
+    """Run alembic upgrade head before the server starts."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        cfg = Config("alembic.ini")
+        command.upgrade(cfg, "head")
+        logger.info("Database migrations applied")
+    except Exception as exc:
+        logger.warning("Migrations failed (continuing): %s", exc)
+
+
 def main() -> None:
     from src.config import settings, RunMode
+
+    _run_migrations()
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
