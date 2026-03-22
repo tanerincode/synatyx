@@ -10,6 +10,7 @@ _CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx",
     ".go", ".rs", ".java", ".cpp", ".c",
     ".rb", ".php", ".swift", ".kt",
+    ".yml", ".yaml", ".toml", ".json",
 }
 
 # Regex patterns for non-Python function/class boundaries

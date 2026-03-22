@@ -34,6 +34,7 @@ def supported_extensions() -> list[str]:
         ".docx", ".pdf",
         ".md / .mdx / .markdown",
         ".py / .js / .ts / .tsx / .jsx / .go / .rs / .java / .cpp / .rb",
+        ".yml / .yaml / .toml / .json",
         "http:// and https:// URLs",
     ]
 
