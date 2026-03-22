@@ -3,48 +3,48 @@ FROM python:3.12-slim AS deps
 
 WORKDIR /app
 
-# System deps needed by parsers (pdfplumber, lxml) and asyncpg
+# Build-time libs (gcc for asyncpg, libpq-dev for psycopg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency declaration (cache layer — only invalidated on pyproject change)
-COPY pyproject.toml LICENSE ./
-# Stub src so hatchling can build the wheel metadata
-RUN mkdir -p src
+# Create an isolated venv so we can copy it cleanly to the runtime stage
+RUN python3 -m venv /app/.venv
 
-# Install directly from pyproject.toml — bypasses uv.lock so no transient
-# sentence-transformers / torch / CUDA packages sneak in
-RUN pip install --no-cache-dir .
+# Cache layer: only re-install when pyproject.toml changes
+COPY pyproject.toml ./
+
+# Read deps from pyproject.toml and install into the venv.
+# Bypasses uv.lock entirely — sentence-transformers/torch/CUDA never pulled in.
+RUN /app/.venv/bin/python3 -c "\
+    import tomllib, subprocess; \
+    deps = tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']; \
+    subprocess.check_call(['/app/.venv/bin/pip', 'install', '--no-cache-dir'] + deps)"
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
-# Runtime system libs
+# Runtime-only system libs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+    libpq5 && rm -rf /var/lib/apt/lists/*
 
 # Non-root user
 RUN groupadd --gid 1001 synatyx \
     && useradd --uid 1001 --gid synatyx --shell /bin/bash --create-home synatyx
 
-# Copy installed packages from deps stage
+# Copy venv from deps stage
 COPY --from=deps /app/.venv /app/.venv
 
 # Copy application source
 COPY --chown=synatyx:synatyx . .
 
-# Make venv the active Python
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 USER synatyx
 
-# Entrypoint: run migrations then start the server
+# Run migrations then start the server
 ENTRYPOINT ["sh", "-c", "alembic upgrade head && python main.py"]
 
