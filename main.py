@@ -12,6 +12,19 @@ logging.basicConfig(
 logger = logging.getLogger("synatyx")
 
 
+def _run_mcp_http(host: str, port: int, debug: bool) -> None:
+    import uvicorn
+    logger.info("MCP SSE  : http://%s:%d/mcp/sse", host, port)
+    logger.info("Health   : http://%s:%d/health", host, port)
+    uvicorn.run(
+        "src.transports.mcp.http_server:app",
+        host=host,
+        port=port,
+        reload=debug,
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
+    )
+
+
 def _run_graphql(host: str, port: int, debug: bool) -> None:
     import uvicorn
     logger.info("GraphQL : http://%s:%d/graphql", host, port)
@@ -84,6 +97,10 @@ def main() -> None:
     if mode == RunMode.MCP:
         logger.info("Running MCP stdio server only")
         asyncio.run(_run_mcp_stdio())
+
+    elif mode == RunMode.MCP_HTTP:
+        logger.info("Running MCP HTTP/SSE server only")
+        _run_mcp_http(host, port, debug)
 
     elif mode == RunMode.GRAPHQL:
         logger.info("Running GraphQL + HTTP server only")

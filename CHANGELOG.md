@@ -16,12 +16,13 @@ Synatyx is an open-source Context Engine for LLMs — a persistent, structured, 
 - **L3 · Qdrant** — semantic knowledge, decisions, checkpoints, skills
 - **L4 · Qdrant** (`ctx_users`) — permanent user-global rules and preferences
 
-#### ⚙️ 18 MCP Tools
+#### ⚙️ 19 MCP Tools
 - **Project** — `context_set_project`, `context_get_project`
 - **Memory** — `context_store`, `context_retrieve`, `context_summarize`, `context_score`
 - **Knowledge** — `context_checkpoint`, `context_deprecate`, `context_list`, `context_ingest`
 - **Tasks** — `context_task_add`, `context_task_list`, `context_task_update`
 - **Skills** — `context_skill_store`, `context_skill_find`, `context_skill_get`, `context_skill_list`, `context_skill_delete`
+- **GC** — `context_gc_stats`
 
 #### 🔍 Hybrid Retrieval Pipeline
 - Dense vector search (Qdrant)
@@ -51,8 +52,18 @@ Synatyx is an open-source Context Engine for LLMs — a persistent, structured, 
 - Ingest `.docx`, `.pdf`, `.md`, source code (`.py`, `.ts`, `.go`, `.rs`, …), any URL
 - Auto-chunked and embedded on ingest
 
+#### 🗑️ Garbage Collection — Forgetting System
+- Separate `synatyx-gc` Docker Compose service (`RUN_MODE=gc`)
+- Importance-weighted TTL: `effective_ttl = base_ttl × (1 + importance × 3.0)`
+- L2 episodic: 30-day base TTL · L3 semantic: 90-day base TTL
+- Two-phase deletion: soft deprecation first → hard delete after 30-day grace period
+- Fire-and-forget `last_accessed_at` tracking on every retrieval hit — items that stay relevant never expire
+- Immune items never auto-expire: checkpoints (`is_pinned`), L4 preferences, skills, `importance=1.0`
+- Full audit log in PostgreSQL `gc_log` table (run_id, item_id, collection, action, reason)
+- `context_gc_stats` MCP tool for live monitoring
+
 #### 🏭 Production Infrastructure
-- Docker + Docker Compose
+- Docker + Docker Compose (4 services: `synatyx`, `synatyx-gc`, `qdrant`, `postgres`)
 - Alembic migrations (PostgreSQL)
 - Makefile with full dev/prod/test workflow
 - OpenTelemetry instrumentation
