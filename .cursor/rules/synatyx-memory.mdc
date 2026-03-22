@@ -17,6 +17,9 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 - `context_deprecate` — Mark an item as superseded; excluded from retrieval but never deleted
 - `context_list` — Browse stored items without vector search; filter by layer, project, or checkpoints
 - `context_ingest` — Parse any file (.docx, .pdf, .md, .py, .js, .ts, .go, …) or URL into chunks and store them automatically
+- `context_task_add` — Add a new task to remember for later (title, description, priority, project)
+- `context_task_list` — List pending or all tasks; call at session start to see what work is waiting
+- `context_task_update` — Update a task's status, priority, title, or description
 
 ## Project Namespacing
 
