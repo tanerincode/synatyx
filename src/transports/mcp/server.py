@@ -8,6 +8,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from src.core.budget import BudgetManager
+from src.core.ingest import IngestService
 from src.core.retrieve import RetrieveService
 from src.core.score import score_items
 from src.core.store import StoreService
@@ -37,6 +38,7 @@ class SynatyxMCPServer:
         self._retrieve = RetrieveService(qdrant, redis, postgres)
         self._store = StoreService(qdrant, redis, postgres)
         self._summarize = SummarizeService(redis, postgres, store=self._store)
+        self._ingest = IngestService(self._store)
         self._budget = BudgetManager()
         self._register_handlers()
 
@@ -106,6 +108,24 @@ class SynatyxMCPServer:
             return {
                 "scored_items": [i.model_dump() for i in scored],
                 "dropped_items": [i.model_dump() for i in dropped],
+            }
+
+        elif name == "context_ingest":
+            from src.models.memory_layer import MemoryLayer as ML
+            layer_str = args.get("memory_layer", "L3")
+            result = await self._ingest.ingest(
+                source=args["source"],
+                user_id=args["user_id"],
+                memory_layer=ML(layer_str),
+                importance=float(args.get("importance", 0.8)),
+                project=args.get("project"),
+                session_id=args.get("session_id"),
+            )
+            return {
+                "source": result.source,
+                "chunks_stored": result.chunks_stored,
+                "chunks_failed": result.chunks_failed,
+                "total_chunks": result.total_chunks,
             }
 
         elif name == "context_checkpoint":

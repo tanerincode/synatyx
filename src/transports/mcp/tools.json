@@ -201,6 +201,49 @@
     }
   },
   {
+    "name": "context_ingest",
+    "description": "Parse and ingest any file or URL into memory as chunks. Supports .docx, .pdf, .md, source code files (.py, .js, .ts, .go, .rs, ...), and any http(s):// URL. Each chunk is embedded and stored automatically.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Absolute file path or URL to ingest"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "memory_layer": {
+          "type": "string",
+          "enum": [
+            "L1",
+            "L2",
+            "L3",
+            "L4"
+          ],
+          "description": "Memory layer to store chunks in (default: L3)"
+        },
+        "importance": {
+          "type": "number",
+          "description": "Importance score 0.0-1.0 (default: 0.8)"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project name tag for filtering (optional)"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Session identifier (optional)"
+        }
+      },
+      "required": [
+        "source",
+        "user_id"
+      ]
+    }
+  },
+  {
     "name": "context_list",
     "description": "List memory items without a vector search — for browsing checkpoints, reviewing what's stored, or finding items to deprecate.",
     "parameters": {
