@@ -20,18 +20,37 @@ LLMs forget everything between conversations. Every new session starts from zero
 
 ## How It Works
 
-Synatyx sits between your IDE and any LLM. It intercepts conversations, stores knowledge in a 4-layer memory architecture, scores everything by relevance, and feeds the right context back automatically — within your token budget.
+```mermaid
+flowchart LR
+    IDE(["🖥️ IDE\nAugment / Cursor / Claude"])
+    MCP["⚙️ Synatyx\nMCP Server"]
+    LLM(["🤖 LLM"])
 
+    IDE -->|MCP stdio| MCP
+    MCP -->|context injected| LLM
+
+    subgraph Memory ["4-Layer Memory"]
+        L1["🔴 L1 · Redis\nWorking Memory · ~4k tokens"]
+        L2["🟠 L2 · Qdrant\nEpisodic Summaries · ~1k tokens"]
+        L3["🟡 L3 · Qdrant\nSemantic Knowledge · ~2k tokens"]
+        L4["🟢 L4 · Qdrant\nPermanent Rules · ~500 tokens"]
+    end
+
+    MCP <-->|read / write| L1
+    MCP <-->|read / write| L2
+    MCP <-->|read / write| L3
+    MCP <-->|read / write| L4
 ```
-Your IDE  ──►  Synatyx (MCP)  ──►  LLM
-                   │
-           ┌───────┴────────┐
-           │  4-Layer Memory │
-           │  L1 Redis       │  working memory  (~4k tokens)
-           │  L2 Qdrant      │  session summaries (~1k tokens)
-           │  L3 Qdrant      │  semantic knowledge (~2k tokens)
-           │  L4 Qdrant      │  permanent rules  (~500 tokens)
-           └────────────────┘
+
+## Retrieval Pipeline
+
+```mermaid
+flowchart LR
+    Q([Query]) --> D[Dense Vector\nSearch · Qdrant]
+    D --> B[BM25\nRe-rank]
+    B --> M[MMR\nDiversity]
+    M --> F[Score\nFusion]
+    F --> R([Ranked Results])
 ```
 
 ---
@@ -39,14 +58,13 @@ Your IDE  ──►  Synatyx (MCP)  ──►  LLM
 ## Features
 
 - **11 MCP Tools** — store, retrieve, summarize, score, checkpoint, deprecate, list, ingest, task management
-- **4-Layer Memory** — Redis (L1 working) + Qdrant (L2–L4 vector) + Postgres (sessions, tasks, audit)
-- **Parser System** — ingest `.docx`, `.pdf`, `.md`, source code (`.py`, `.ts`, `.go`, `.rs`, …), and any URL
-- **Checkpoint System** — named, pinned decision snapshots with soft deprecation (never deleted)
+- **4-Layer Memory** — Redis L1 + Qdrant L2–L4 + Postgres sessions, tasks, audit log
+- **Parser System** — ingest `.docx`, `.pdf`, `.md`, source code (`.py`, `.ts`, `.go`, `.rs`, …), any URL
+- **Checkpoint System** — named pinned snapshots with soft deprecation, never deleted
 - **Task Mechanism** — persistent cross-session task tracking with priority and status
-- **Hybrid Retrieval** — dense vectors + BM25 sparse + MMR diversity, fused into a single ranked list
+- **Hybrid Retrieval** — dense + BM25 sparse + MMR diversity fused into one ranked list
 - **Token Budget Manager** — auto-allocates context per layer, respects model limits
-- **GraphQL API** — queries, mutations, real-time subscriptions for external services
-- **Production Ready** — Docker Compose, Dockerfile, Alembic migrations, health checks, swap config
+- **Production Ready** — Dockerfile, Docker Compose, Alembic migrations, health checks
 
 ---
 
@@ -91,10 +109,8 @@ git clone https://github.com/tanerincode/synatyx.git && cd synatyx
 cp .env.example .env          # set EMBEDDING_OPENAI_API_KEY
 docker compose up -d qdrant redis postgres
 uv sync && alembic upgrade head
-python main.py                # starts MCP stdio server
+python main.py
 ```
-
-Connect to Augment, Cursor, or Claude Code — see [docs/local-setup.md](docs/local-setup.md) for IDE config.
 
 ---
 
