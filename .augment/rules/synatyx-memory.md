@@ -11,6 +11,11 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 - `context_store` — Save a piece of information to long-term memory
 - `context_retrieve` — Search and recall relevant memories before answering
 - `context_summarize` — Summarize and compress working memory for a session
+- `context_score` — Re-rank a list of context items by relevance to a query
+- `context_checkpoint` — Save a named, pinned snapshot of a decision or milestone (importance=1.0)
+- `context_deprecate` — Mark an item as superseded; excluded from retrieval but never deleted
+- `context_list` — Browse stored items without vector search; filter by layer, project, or checkpoints
+- `context_ingest` — Parse any file (.docx, .pdf, .md, .py, .js, .ts, .go, …) or URL into chunks and store them automatically
 
 ## When to Call `context_retrieve`
 
