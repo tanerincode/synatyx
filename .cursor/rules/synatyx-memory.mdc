@@ -27,6 +27,7 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 - `context_skill_get` — Fetch a skill by exact name or slug from PostgreSQL
 - `context_skill_list` — List all stored skills for the user, optionally scoped to a project
 - `context_skill_delete` — Remove a skill from PostgreSQL and deprecate its Qdrant embedding
+- `context_gc_stats` — Return GC statistics for the active project (expiring soon, deprecated, pending hard delete, protected)
 
 ## Project Namespacing
 

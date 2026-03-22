@@ -592,5 +592,21 @@
         "user_id"
       ]
     }
+  },
+  {
+    "name": "context_gc_stats",
+    "description": "Return garbage collection statistics for the active project — how many items are expiring soon, already deprecated, pending hard delete, or protected.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        }
+      },
+      "required": [
+        "user_id"
+      ]
+    }
   }
 ]

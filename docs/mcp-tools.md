@@ -210,3 +210,31 @@ Remove a skill from PostgreSQL and deprecate its Qdrant embedding.
 | `name` | string | ✅ | Skill name or slug |
 | `user_id` | string | ✅ | User identifier |
 
+---
+
+## Garbage Collection
+
+### `context_gc_stats`
+Return GC statistics for the active project — how many items are expiring soon, already deprecated, pending hard delete, or protected from GC.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | ✅ | User identifier |
+
+**Response:**
+```json
+{
+  "total_items": 1240,
+  "protected": 310,
+  "expiring_soon_14d": 42,
+  "already_deprecated": 18,
+  "pending_hard_delete": 6,
+  "gc_enabled": true,
+  "l2_base_ttl_days": 30,
+  "l3_base_ttl_days": 90,
+  "grace_period_days": 30
+}
+```
+
+> The GC daemon runs as a separate Docker service (`synatyx-gc`). It does not need to be triggered manually — it runs on a configurable interval (default: 24h). Use `context_gc_stats` to monitor its state.
+

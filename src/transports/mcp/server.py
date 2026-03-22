@@ -413,6 +413,64 @@ class SynatyxMCPServer:
                 return {"error": f"Skill {args['name']!r} not found"}
             return {"deleted": True, "name": args["name"]}
 
+        elif name == "context_gc_stats":
+            _, qdrant, _, _, _ = await self._get_services(user_id)
+            from src.config import settings as _settings
+            from src.core.gc import GarbageCollector, _IMMUNE_LAYERS, _IMMUNE_TYPE
+            from datetime import datetime, timedelta, timezone
+
+            gc = GarbageCollector(qdrant=qdrant, postgres=self._postgres, settings=_settings.gc)
+            now = datetime.now(timezone.utc)
+            warn_threshold = timedelta(days=14)
+
+            all_items, _ = await qdrant.scan_all_items(include_deprecated=True, limit=1000)
+            total = len(all_items)
+            protected = expiring_soon = deprecated = pending_hard_delete = 0
+
+            for item in all_items:
+                if item.get("is_deprecated"):
+                    deprecated += 1
+                    dep_raw = item.get("deprecated_at")
+                    if dep_raw:
+                        dep_at = datetime.fromisoformat(dep_raw)
+                        if dep_at.tzinfo is None:
+                            dep_at = dep_at.replace(tzinfo=timezone.utc)
+                        if (now - dep_at).days >= _settings.gc.grace_period_days:
+                            pending_hard_delete += 1
+                    continue
+
+                if gc._is_immune(item):
+                    protected += 1
+                    continue
+
+                base_ttl = gc._get_base_ttl(item.get("memory_layer", ""))
+                if base_ttl is None:
+                    protected += 1
+                    continue
+
+                importance = float(item.get("importance", 0.5))
+                effective_ttl = base_ttl * (1 + importance * _settings.gc.importance_multiplier)
+                last_raw = item.get("last_accessed_at") or item.get("created_at")
+                if last_raw:
+                    last = datetime.fromisoformat(last_raw)
+                    if last.tzinfo is None:
+                        last = last.replace(tzinfo=timezone.utc)
+                    remaining = timedelta(days=effective_ttl) - (now - last)
+                    if timedelta(0) < remaining <= warn_threshold:
+                        expiring_soon += 1
+
+            return {
+                "total_items": total,
+                "protected": protected,
+                "expiring_soon_14d": expiring_soon,
+                "already_deprecated": deprecated,
+                "pending_hard_delete": pending_hard_delete,
+                "gc_enabled": _settings.gc.enabled,
+                "l2_base_ttl_days": _settings.gc.l2_base_ttl_days,
+                "l3_base_ttl_days": _settings.gc.l3_base_ttl_days,
+                "grace_period_days": _settings.gc.grace_period_days,
+            }
+
         raise ValueError(f"Unknown tool: {name}")
 
     async def run_stdio(self) -> None:
