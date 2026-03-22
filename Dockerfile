@@ -3,20 +3,20 @@ FROM python:3.12-slim AS deps
 
 WORKDIR /app
 
-# System deps needed by parsers (pdfplumber, lxml)
+# System deps needed by parsers (pdfplumber, lxml) and asyncpg
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for fast dep resolution
-RUN pip install --no-cache-dir uv
+# Copy dependency declaration (cache layer — only invalidated on pyproject change)
+COPY pyproject.toml LICENSE ./
+# Stub src so hatchling can build the wheel metadata
+RUN mkdir -p src
 
-# Copy dependency files only (cache layer)
-COPY pyproject.toml uv.lock* LICENSE ./
-
-# Install production deps into /app/.venv
-RUN uv sync --no-dev --no-install-project
+# Install directly from pyproject.toml — bypasses uv.lock so no transient
+# sentence-transformers / torch / CUDA packages sneak in
+RUN pip install --no-cache-dir .
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
