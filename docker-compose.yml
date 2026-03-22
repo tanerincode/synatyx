@@ -77,6 +77,20 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: synatyx_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - synatyx-mcp
+
   synatyx-mcp:
     build: .
     container_name: synatyx_mcp
@@ -91,8 +105,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    ports:
-      - "9001:9000"
     environment:
       RUN_MODE: mcp-http
       PORT: "9000"
@@ -110,4 +122,6 @@ volumes:
   qdrant_data:
   redis_data:
   postgres_data:
+  caddy_data:
+  caddy_config:
 
