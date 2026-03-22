@@ -58,6 +58,7 @@ class Query:
         query: str,
         user_id: str,
         session_id: Optional[str] = None,
+        project: Optional[str] = None,
         top_k: int = 10,
         memory_layers: Optional[list[str]] = None,
     ) -> RetrieveContextResult:
@@ -67,6 +68,7 @@ class Query:
             query=query,
             user_id=user_id,
             session_id=session_id,
+            project=project,
             top_k=top_k,
             memory_layers=layers,
         )

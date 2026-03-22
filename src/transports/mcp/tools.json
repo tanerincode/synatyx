@@ -17,6 +17,10 @@
           "type": "string",
           "description": "Project namespace or session identifier. Pass the project slug (e.g. 'taty-v2') to scope retrieval to that project only and avoid cross-project contamination. Omit only for cross-project or global queries."
         },
+        "project": {
+          "type": "string",
+          "description": "Project name to filter results by (e.g. 'taty-v2'). Filters at the Qdrant level for efficient project-scoped retrieval. Can be used alongside or instead of session_id."
+        },
         "top_k": {
           "type": "integer",
           "description": "Max items to return (default: 10)"

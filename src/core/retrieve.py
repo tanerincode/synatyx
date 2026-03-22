@@ -47,6 +47,7 @@ class RetrieveService:
         query: str,
         user_id: str,
         session_id: str | None = None,
+        project: str | None = None,
         top_k: int = 10,
         memory_layers: list[MemoryLayer] | None = None,
         use_mmr: bool = True,
@@ -83,6 +84,7 @@ class RetrieveService:
                 top_k=candidate_k,
                 memory_layer=layer,
                 session_id=session_id,
+                project=project,
             )
             all_items.extend(results)
 

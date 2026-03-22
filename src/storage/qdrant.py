@@ -46,6 +46,7 @@ class QdrantStorage:
             payload={
                 "user_id": item.user_id,
                 "session_id": item.session_id,
+                "project": item.metadata.get("project"),
                 "content": item.content,
                 "memory_layer": item.memory_layer.value,
                 "importance": item.importance,
@@ -66,6 +67,7 @@ class QdrantStorage:
         memory_layer: MemoryLayer | None = None,
         score_threshold: float = 0.0,
         session_id: str | None = None,
+        project: str | None = None,
     ) -> list[ScoredContextItem]:
         """Similarity search filtered by user_id and optionally memory_layer or session_id."""
         conditions: list[Any] = [
@@ -79,6 +81,10 @@ class QdrantStorage:
         if session_id:
             conditions.append(
                 FieldCondition(key="session_id", match=MatchValue(value=session_id))
+            )
+        if project:
+            conditions.append(
+                FieldCondition(key="project", match=MatchValue(value=project))
             )
 
         results = await self._client.query_points(
@@ -158,6 +164,10 @@ class QdrantStorage:
             conditions.append(
                 FieldCondition(key="memory_layer", match=MatchValue(value=memory_layer.value))
             )
+        if project:
+            conditions.append(
+                FieldCondition(key="project", match=MatchValue(value=project))
+            )
 
         results, _ = await self._client.scroll(
             collection_name=COLLECTION_NAME,
@@ -171,10 +181,8 @@ class QdrantStorage:
         for r in results:
             p = r.payload or {}
             metadata = p.get("metadata", {})
-            # filter by checkpoint or project if requested
+            # filter checkpoints in Python (no top-level field for checkpoint_name)
             if checkpoints_only and "checkpoint_name" not in metadata:
-                continue
-            if project and metadata.get("project") != project:
                 continue
             items.append(ContextItem(
                 id=str(r.id),

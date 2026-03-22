@@ -71,6 +71,7 @@ class SynatyxMCPServer:
                 query=args["query"],
                 user_id=args["user_id"],
                 session_id=args.get("session_id"),
+                project=args.get("project"),
                 top_k=args.get("top_k", 10),
                 memory_layers=layers,
             )

@@ -35,6 +35,7 @@ Parameters to use:
 - `user_id`: always `"tombastaner"`
 - `query`: a short description of what you are looking for
 - `session_id`: the project slug (e.g. `"taty-v2"`) to scope results to that project — omit only for cross-project queries
+- `project`: the project name (e.g. `"taty-v2"`) for Qdrant-level filtering — use alongside `session_id` for maximum isolation
 - `top_k`: `5` for general queries, `10` for broad topic searches
 
 ## When to Call `context_store`
