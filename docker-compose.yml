@@ -59,6 +59,9 @@ services:
     env_file: .env
     environment:
       RUN_MODE: gc
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
     depends_on:
       qdrant:
         condition: service_started
@@ -66,8 +69,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    networks:
-      - synatyx_network
 
   synatyx:
     build: .
