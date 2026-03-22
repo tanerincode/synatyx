@@ -62,7 +62,12 @@ class AuditLogRow(Base):
 class PostgresStorage:
     def __init__(self, dsn: str | None = None) -> None:
         self._dsn = dsn or settings.postgres.dsn
-        self._engine = create_async_engine(self._dsn, echo=settings.debug)
+        self._engine = create_async_engine(
+            self._dsn,
+            echo=settings.debug,
+            pool_pre_ping=True,      # test connection before use — kills stale connections
+            pool_recycle=1800,       # recycle connections older than 30 min
+        )
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
 
     async def connect(self) -> None:
