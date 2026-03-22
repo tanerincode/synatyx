@@ -40,6 +40,18 @@ services:
       retries: 5
       start_period: 10s
 
+  migrate:
+    build: .
+    container_name: synatyx_migrate
+    env_file: .env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://context_engine:context_engine@postgres:5432/context_engine
+    entrypoint: ["alembic", "upgrade", "head"]
+
   synatyx:
     build: .
     container_name: synatyx
@@ -52,6 +64,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     environment:

@@ -17,21 +17,41 @@ from qdrant_client.models import (
 from src.models.context import ContextItem, ScoredContextItem
 from src.models.memory_layer import MemoryLayer
 
-COLLECTION_NAME = "synatyx_context"
+DEFAULT_COLLECTION = "ctx_default"
 VECTOR_SIZE = 1536  # OpenAI ada-002 / sentence-transformers default
 
 
 class QdrantStorage:
-    def __init__(self, host: str = "localhost", port: int = 6333) -> None:
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 6333,
+        collection_name: str = DEFAULT_COLLECTION,
+    ) -> None:
+        self._host = host
+        self._port = port
+        self._collection_name = collection_name
         self._client = AsyncQdrantClient(host=host, port=port)
+
+    @property
+    def host(self) -> str:
+        return self._host
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def collection_name(self) -> str:
+        return self._collection_name
 
     async def init_collection(self) -> None:
         """Create the collection if it doesn't exist."""
         collections = await self._client.get_collections()
         names = [c.name for c in collections.collections]
-        if COLLECTION_NAME not in names:
+        if self._collection_name not in names:
             await self._client.create_collection(
-                collection_name=COLLECTION_NAME,
+                collection_name=self._collection_name,
                 vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
             )
 
@@ -56,7 +76,7 @@ class QdrantStorage:
                 "created_at": item.created_at.isoformat(),
             },
         )
-        await self._client.upsert(collection_name=COLLECTION_NAME, points=[point])
+        await self._client.upsert(collection_name=self._collection_name, points=[point])
         return item.id
 
     async def search(
@@ -88,7 +108,7 @@ class QdrantStorage:
             )
 
         results = await self._client.query_points(
-            collection_name=COLLECTION_NAME,
+            collection_name=self._collection_name,
             query=query_vector,
             query_filter=Filter(must=conditions),
             limit=top_k,
@@ -119,14 +139,14 @@ class QdrantStorage:
     async def delete(self, item_id: str) -> None:
         """Delete a single point by ID."""
         await self._client.delete(
-            collection_name=COLLECTION_NAME,
+            collection_name=self._collection_name,
             points_selector=[str(uuid.UUID(item_id))],
         )
 
     async def delete_by_user(self, user_id: str) -> None:
         """Delete all points belonging to a user."""
         await self._client.delete(
-            collection_name=COLLECTION_NAME,
+            collection_name=self._collection_name,
             points_selector=Filter(
                 must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
             ),
@@ -138,7 +158,7 @@ class QdrantStorage:
         if reason:
             payload["deprecated_reason"] = reason
         await self._client.set_payload(
-            collection_name=COLLECTION_NAME,
+            collection_name=self._collection_name,
             payload=payload,
             points=[str(uuid.UUID(item_id))],
         )
@@ -170,7 +190,7 @@ class QdrantStorage:
             )
 
         results, _ = await self._client.scroll(
-            collection_name=COLLECTION_NAME,
+            collection_name=self._collection_name,
             scroll_filter=Filter(must=conditions),
             limit=limit,
             with_payload=True,

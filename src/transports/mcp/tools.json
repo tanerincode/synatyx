@@ -417,5 +417,42 @@
         "user_id"
       ]
     }
+  },
+  {
+    "name": "context_set_project",
+    "description": "Set the active project for the current user. All subsequent memory operations (store, retrieve, list, ingest, checkpoint) will be scoped to a dedicated Qdrant collection for this project (e.g. 'synatyx' → collection 'ctx_synatyx'). The selection is persisted in Redis and survives server restarts. If unsure of the project name, call context_get_project first — it will suggest the workspace folder name.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project name to activate (e.g. 'synatyx', 'taty-v2'). Will be slugified automatically."
+        }
+      },
+      "required": [
+        "user_id",
+        "project"
+      ]
+    }
+  },
+  {
+    "name": "context_get_project",
+    "description": "Return the currently active project for the user. If no project has been set, returns a suggestion based on the current workspace folder name — call context_set_project with the suggested name to confirm.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        }
+      },
+      "required": [
+        "user_id"
+      ]
+    }
   }
 ]

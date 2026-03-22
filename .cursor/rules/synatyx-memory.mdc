@@ -1,5 +1,5 @@
 ---
-description: Synatyx long-term memory — use context_store and context_retrieve to persist and recall information across conversations
+description: Synatyx long-term memory — use context_set_project, context_store, context_retrieve and other tools to persist and recall information across conversations with full multi-project support
 alwaysApply: true
 ---
 
@@ -9,6 +9,8 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 
 ## Available Tools
 
+- `context_set_project` — Set the active project; all memory ops are scoped to its dedicated Qdrant collection (`ctx_<slug>`)
+- `context_get_project` — Return the currently active project, or suggest the workspace folder name if none is set
 - `context_store` — Save a piece of information to long-term memory
 - `context_retrieve` — Search and recall relevant memories before answering
 - `context_summarize` — Summarize and compress working memory for a session
@@ -23,12 +25,14 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 
 ## Project Namespacing
 
-`session_id` doubles as a **project namespace**. Always set it to the project slug (e.g. `"taty-v2"`, `"korm-v2"`) when ingesting, storing, or retrieving project-specific content. This scopes Qdrant retrieval to that project only and prevents cross-project contamination.
+Each project gets its own dedicated Qdrant collection named `ctx_<slug>` (e.g. `ctx_synatyx`, `ctx_taty_v2`). The active project is persisted in Redis per user and survives server restarts.
 
-- **Ingesting a codebase** → `session_id = "<project-name>"` (e.g. `"taty-v2"`)
-- **Storing a project fact** → `session_id = "<project-name>"`
-- **Retrieving for a project** → `session_id = "<project-name>"` to get only that project's chunks
-- **Cross-project or global facts** → omit `session_id` or use a descriptive slug (e.g. `"user-preferences"`)
+- Call `context_set_project` at the start of a session to activate a project
+- If unsure of the project name, call `context_get_project` — it will suggest the workspace folder name
+- `session_id` still scopes Redis L1 retrieval within a project
+
+### L4 is always user-global
+L4 (procedural preferences — coding style, workflow rules, user facts) is **never** project-scoped. It always routes to the shared `ctx_users` collection regardless of the active project. Store user preferences, email, communication style, etc. as L4 — they follow the user across all projects.
 
 ## When to Call `context_retrieve`
 
@@ -40,7 +44,7 @@ Call `context_retrieve` at the **start of every new conversation** and whenever 
 - When asked about the project, tech stack, or conventions
 
 Parameters to use:
-- `user_id`: always `"tombastaner"`
+- `user_id`: derive from system username (`whoami`) or ask the user once if it cannot be determined
 - `query`: a short description of what you are looking for
 - `session_id`: the project slug (e.g. `"taty-v2"`) to scope results to that project — omit only for cross-project queries
 - `project`: the project name (e.g. `"taty-v2"`) for Qdrant-level filtering — use alongside `session_id` for maximum isolation
@@ -58,13 +62,13 @@ Store information **proactively** during or after a conversation whenever someth
 - Important facts about the codebase (e.g. "Qdrant runs on port 6333", "RUN_MODE=mcp for stdio")
 
 Parameters to use:
-- `user_id`: always `"tombastaner"`
+- `user_id`: derive from system username (`whoami`) or ask the user once if it cannot be determined
 - `content`: a clear, standalone description (write it so it makes sense without the surrounding conversation)
 - `memory_layer`: pick the appropriate layer:
   - `L1` — transient facts for the current session (ephemeral decisions, scratch notes)
   - `L2` — episodic memories (what happened in this conversation, summaries)
   - `L3` — semantic facts (stable knowledge: project structure, tech stack, how something works)
-  - `L4` — procedural preferences (how the user likes to work, coding style, workflow rules)
+  - `L4` — procedural preferences (user-global: coding style, workflow rules, personal facts) → always stored in `ctx_users`
 - `importance`: `0.0`–`1.0` (use `0.9`+ for architectural decisions, `0.5`–`0.7` for useful facts, `0.3` for minor details)
 - `session_id`: use the project slug for project-specific facts (e.g. `"taty-v2"`), or a descriptive slug for global/cross-project facts (e.g. `"user-preferences"`)
 
@@ -80,10 +84,13 @@ This ensures all ingested chunks are retrievable in isolation per project.
 
 ## Workflow
 
-1. User opens a new chat → call `context_retrieve` with the first message as the query and `session_id` set to the active project slug
-2. Inject retrieved context into your reasoning before responding
-3. During the conversation, call `context_store` with the project slug as `session_id` whenever a decision or fact is established
-4. At the end of a long session, call `context_summarize` to compress the session into L2
+1. User opens a new chat → call `context_get_project` to check the active project
+2. If no project is set → call `context_set_project` with the suggested workspace folder name (confirm with user if needed)
+3. Call `context_retrieve` with the user's first message as the query
+4. Call `context_task_list` to surface pending work
+5. Inject retrieved context into your reasoning before responding
+6. During the conversation, call `context_store` whenever a decision or fact is established
+7. At the end of a long session, call `context_summarize` to compress the session into L2
 
 ## General Rules
 
@@ -92,4 +99,5 @@ This ensures all ingested chunks are retrievable in isolation per project.
 - Keep stored content concise and self-contained (2–4 sentences max per item)
 - Always retrieve before answering questions about past work or decisions
 - Always pass `session_id` as the project slug — never omit it for project-specific operations
+- Store user-level facts (email, preferences, style) as L4 — they go to `ctx_users` automatically
 

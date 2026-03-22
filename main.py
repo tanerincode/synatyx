@@ -53,7 +53,7 @@ async def _run_mcp_stdio() -> None:
     from src.storage.postgres import PostgresStorage
     from src.transports.mcp.server import SynatyxMCPServer
 
-    qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port)
+    qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port, collection_name=settings.qdrant.collection_name)
     await _connect_with_retry("Qdrant", qdrant.init_collection)
 
     redis = RedisStorage(url=settings.redis.url)
@@ -67,22 +67,12 @@ async def _run_mcp_stdio() -> None:
     await server.run_stdio()
 
 
-def _run_migrations() -> None:
-    """Run alembic upgrade head before the server starts."""
-    try:
-        from alembic.config import Config
-        from alembic import command
-        cfg = Config("alembic.ini")
-        command.upgrade(cfg, "head")
-        logger.info("Database migrations applied")
-    except Exception as exc:
-        logger.warning("Migrations failed (continuing): %s", exc)
-
-
 def main() -> None:
     from src.config import settings, RunMode
 
-    _run_migrations()
+    # Migrations are run by the Dockerfile entrypoint (`alembic upgrade head`)
+    # inside the container where postgres is reachable via the internal Docker network.
+    # Do NOT run them here — postgres is not exposed on the host.
 
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))

@@ -72,7 +72,7 @@ schema = strawberry.Schema(
 async def lifespan(app: FastAPI):
     global _qdrant, _redis, _postgres, _retrieve_svc, _store_svc, _summarize_svc, _mcp_server, _mcp_sse
 
-    _qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port)
+    _qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port, collection_name=settings.qdrant.collection_name)
     await _qdrant.init_collection()
 
     _redis = RedisStorage(url=settings.redis.url)

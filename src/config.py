@@ -18,7 +18,7 @@ class RunMode(str, Enum):
 class QdrantSettings(BaseSettings):
     host: str = "localhost"
     port: int = 6333
-    collection_name: str = "synatyx_context"
+    collection_name: str = "ctx_default"
     vector_size: int = 1536
 
     model_config = SettingsConfigDict(env_prefix="QDRANT_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")

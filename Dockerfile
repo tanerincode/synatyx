@@ -42,6 +42,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 USER synatyx
 
-# Run migrations then start the server
-ENTRYPOINT ["sh", "-c", "alembic upgrade head && python main.py"]
+# Migrations are handled by the dedicated `migrate` service in docker-compose.yml
+ENTRYPOINT ["python", "main.py"]
 

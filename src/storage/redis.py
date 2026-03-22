@@ -12,6 +12,7 @@ L1_MAX_MESSAGES = 20
 L1_KEY_PREFIX = "synatyx:l1"
 BUDGET_KEY_PREFIX = "synatyx:budget"
 PUBSUB_CHANNEL = "synatyx:events"
+PROJECT_KEY_PREFIX = "synatyx:project"
 
 
 class RedisStorage:
@@ -88,6 +89,20 @@ class RedisStorage:
         pubsub = self._client.pubsub()
         await pubsub.subscribe(PUBSUB_CHANNEL)
         return pubsub
+
+    # -------------------------------------------------------------------------
+    # Project State
+    # -------------------------------------------------------------------------
+
+    async def project_set(self, user_id: str, slug: str) -> None:
+        """Persist the active project slug for a user."""
+        key = f"{PROJECT_KEY_PREFIX}:{user_id}"
+        await self._client.set(key, slug)
+
+    async def project_get(self, user_id: str) -> str | None:
+        """Return the active project slug for a user, or None if not set."""
+        key = f"{PROJECT_KEY_PREFIX}:{user_id}"
+        return await self._client.get(key)
 
     # -------------------------------------------------------------------------
     # Lifecycle
