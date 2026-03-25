@@ -43,29 +43,10 @@ This starts all services (Qdrant, Redis, Postgres, runs migrations, starts Synat
 
 ## 2a. Manual / local dev
 
-Install deps:
-
-```bash
-make install
-```
-
 Start infrastructure only:
 
 ```bash
 make up
-```
-
-Run migrations:
-
-```bash
-make migrate
-```
-
-Run locally:
-
-```bash
-make mcp      # MCP stdio mode (for IDE integrations)
-make dev      # GraphQL HTTP mode → http://localhost:8000/graphql
 ```
 
 ---
@@ -79,10 +60,9 @@ Add to your Augment MCP settings:
 ```json
 {
   "mcpServers": {
-    "synatyx": {
-      "command": "python",
-      "args": ["/absolute/path/to/synatyx/main.py"],
-      "env": { "RUN_MODE": "mcp" }
+    "Synatyx": {
+      "url": "http://localhost:9000/mcp/sse",
+      "type": "sse"
     }
   }
 }
@@ -96,9 +76,7 @@ Add to `.cursor/mcp.json` in your project root:
 {
   "mcpServers": {
     "synatyx": {
-      "command": "python",
-      "args": ["/absolute/path/to/synatyx/main.py"],
-      "env": { "RUN_MODE": "mcp" }
+      "url": "http://localhost:9000/mcp/sse"
     }
   }
 }
@@ -112,15 +90,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "synatyx": {
-      "command": "/absolute/path/to/synatyx/.venv/bin/python3",
-      "args": ["/absolute/path/to/synatyx/main.py"],
-      "env": {
-        "RUN_MODE": "mcp",
-        "QDRANT_HOST": "localhost",
-        "QDRANT_PORT": "6333",
-        "REDIS_URL": "redis://localhost:6379/0",
-        "POSTGRES_DSN": "postgresql+asyncpg://context_engine:context_engine@localhost:5432/context_engine"
-      }
+      "url": "http://localhost:9000/mc/sse"
     }
   }
 }

@@ -77,20 +77,6 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: synatyx_caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - synatyx-mcp
-
   synatyx-mcp:
     build: .
     container_name: synatyx_mcp

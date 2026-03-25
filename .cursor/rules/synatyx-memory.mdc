@@ -1,11 +1,25 @@
 ---
-description: Synatyx long-term memory — use context_set_project, context_store, context_retrieve and other tools to persist and recall information across conversations with full multi-project support
+description: Synatyx long-term memory — keep context current via continuous retrieve/store/deprecate; use context_set_project, context_retrieve, context_store, tasks, and checkpoints across sessions
 alwaysApply: true
 ---
 
 # Synatyx Long-Term Memory
 
 You have access to the Synatyx context engine via MCP tools. Use them to persist and recall information across conversations.
+
+## Keeping Context Always Current
+
+Memory is **living state**, not a one-time load at session start. The model must **read fresh context when it matters** and **write back when ground truth changes** so the next turn (human or agent) sees an accurate picture.
+
+- **Retrieve again** when the conversation has moved on, after substantial tool/code work, when the user’s question may depend on stored facts you have not loaded yet, or when you are unsure whether your cached understanding is still valid (see Mid-Conversation Retrieval).
+- **Store or update** as soon as a durable fact changes: decisions, fixes, preferences, config, file/module layout, or task status. Prefer many small accurate writes over one giant end-of-session dump.
+- **Deprecate then replace** whenever you correct or supersede something already in memory — never leave contradictory items both active (see Keeping Memory Fresh).
+- **Tasks**: After finishing, cancelling, or reprioritizing remembered work, call `context_task_update` so the task list matches reality.
+- **Checkpoints / summarize**: Use `context_checkpoint` for milestones and `context_summarize` after substantial sessions so episodic (L2) and pinned state stay aligned with what actually happened.
+
+Default stance: if you would tell a teammate “remember this for next time,” store it; if you would ask “what did we decide?”, retrieve first.
+
+**Owner expectation:** Context is never “fire and forget”—after meaningful implementation or fixes, **write back** (and **deprecate** outdated items) so the next turn matches the repo and product truth. Do not wait for a reminder to sync memory. **Async is OK:** Synatyx/MCP calls are asynchronous; you may run `context_store` / `context_deprecate` in parallel with other work or after the user-visible answer, as long as updates **complete in the same session** (not skipped).
 
 ## Available Tools
 
@@ -17,93 +31,142 @@ You have access to the Synatyx context engine via MCP tools. Use them to persist
 - `context_score` — Re-rank a list of context items by relevance to a query
 - `context_checkpoint` — Save a named, pinned snapshot of a decision or milestone (importance=1.0)
 - `context_deprecate` — Mark an item as superseded; excluded from retrieval but never deleted
-- `context_list` — Browse stored items without vector search; filter by layer, project, or checkpoints
+- `context_list` — Browse stored items without vector search; filter by layer or checkpoints
 - `context_ingest` — Parse any file (.docx, .pdf, .md, .py, .js, .ts, .go, …) or URL into chunks and store them automatically
 - `context_task_add` — Add a new task to remember for later (title, description, priority, project)
 - `context_task_list` — List pending or all tasks; call at session start to see what work is waiting
 - `context_task_update` — Update a task's status, priority, title, or description
-- `context_skill_store` — Save a skill definition. Writes full content to PostgreSQL and embeds only the description into Qdrant L3 for RAG matching
-- `context_skill_find` — RAG search for the best matching skill(s) for a given task. Embeds the query, searches Qdrant L3 filtered by type='skill', then fetches full content from PostgreSQL
-- `context_skill_get` — Fetch a skill by exact name or slug from PostgreSQL
-- `context_skill_list` — List all stored skills for the user, optionally scoped to a project
-- `context_skill_delete` — Remove a skill from PostgreSQL and deprecate its Qdrant embedding
-- `context_gc_stats` — Return GC statistics for the active project (expiring soon, deprecated, pending hard delete, protected)
+- `context_skill_store` — Save a skill definition
+- `context_skill_find` — RAG search for the best matching skill(s) for a given task
+- `context_skill_get` — Fetch a skill by exact name or slug
+- `context_skill_list` — List all stored skills for the user
+- `context_skill_delete` — Remove a skill and deprecate its embedding
+- `context_gc_stats` — Return GC statistics (expiring soon, deprecated, pending hard delete, protected)
 
 ## Project Namespacing
 
-Each project gets its own dedicated Qdrant collection named `ctx_<slug>` (e.g. `ctx_synatyx`, `ctx_taty_v2`). The active project is persisted in Redis per user and survives server restarts.
+Each project gets its own Qdrant collection named `ctx_<slug>`. The active project persists in Redis across restarts.
 
-- Call `context_set_project` at the start of a session to activate a project
+- Always call `context_set_project` at session start to activate the correct project
 - If unsure of the project name, call `context_get_project` — it will suggest the workspace folder name
-- `session_id` still scopes Redis L1 retrieval within a project
+- L4 (user-global) always routes to `ctx_users` regardless of active project
 
-### L4 is always user-global
-L4 (procedural preferences — coding style, workflow rules, user facts) is **never** project-scoped. It always routes to the shared `ctx_users` collection regardless of the active project. Store user preferences, email, communication style, etc. as L4 — they follow the user across all projects.
+## Session Start — Mandatory Retrieval Sequence
 
-## When to Call `context_retrieve`
+Run these **in parallel** at the start of every conversation (batch them in a single tool call round):
 
-Call `context_retrieve` at the **start of every new conversation** and whenever the user asks about something that may have been discussed before:
+```
+# Call 1 — user-global preferences (L4, no session_id, no project)
+context_retrieve(user_id=..., query=<first message>, layers=["L4"], top_k=5)
 
-- At conversation start: query with the user's first message to surface relevant past context
-- When the user references a previous decision, preference, or task ("like we did before", "as we discussed")
-- Before starting any significant new task (architecture decisions, new features, debugging sessions)
-- When asked about the project, tech stack, or conventions
+# Call 2 — project-wide knowledge (no session_id, no project filter — broadest recall)
+context_retrieve(user_id=..., query=<first message>, top_k=10)
 
-Parameters to use:
-- `user_id`: derive from system username (`whoami`) or ask the user once if it cannot be determined
-- `query`: a short description of what you are looking for
-- `session_id`: the project slug (e.g. `"taty-v2"`) to scope results to that project — omit only for cross-project queries
-- `project`: the project name (e.g. `"taty-v2"`) for Qdrant-level filtering — use alongside `session_id` for maximum isolation
-- `top_k`: `5` for general queries, `10` for broad topic searches
+# Call 3 — pending tasks
+context_task_list(user_id=..., project="<project-slug>")
+```
 
-## When to Call `context_store`
+> **At session start: never pass `session_id` or `project` to these calls.**
+> Omitting them hits all collections and surfaces the most relevant items regardless of how they were originally scoped. Passing them narrows results and causes misses.
 
-Store information **proactively** during or after a conversation whenever something worth remembering is established:
+## Mid-Conversation Retrieval
 
-- User decisions: chosen libraries, patterns, architecture choices
-- Bugs found and their root causes
-- Project conventions or preferences the user states
-- Task outcomes: what was built, what was deployed, what was changed
-- User preferences for communication style or workflow
-- Important facts about the codebase (e.g. "Qdrant runs on port 6333", "RUN_MODE=mcp for stdio")
+Re-call `context_retrieve` whenever:
+- The topic shifts to something not yet covered in the current context window
+- The user references a past decision, bug, or conversation ("like we did before", "as we discussed")
+- You are about to start a new significant task (new feature, architecture change, debugging session)
+- You have just completed a multi-step implementation, refactor, or investigation and the user’s next question may depend on project memory you have not refreshed
+- A long exchange has passed since the last retrieval and you are answering something that could be affected by stored preferences, architecture, or prior conclusions
 
-Parameters to use:
-- `user_id`: derive from system username (`whoami`) or ask the user once if it cannot be determined
-- `content`: a clear, standalone description (write it so it makes sense without the surrounding conversation)
-- `memory_layer`: pick the appropriate layer:
-  - `L1` — transient facts for the current session (ephemeral decisions, scratch notes)
-  - `L2` — episodic memories (what happened in this conversation, summaries)
-  - `L3` — semantic facts (stable knowledge: project structure, tech stack, how something works)
-  - `L4` — procedural preferences (user-global: coding style, workflow rules, personal facts) → always stored in `ctx_users`
-- `importance`: `0.0`–`1.0` (use `0.9`+ for architectural decisions, `0.5`–`0.7` for useful facts, `0.3` for minor details)
-- `session_id`: use the project slug for project-specific facts (e.g. `"taty-v2"`), or a descriptive slug for global/cross-project facts (e.g. `"user-preferences"`)
+Use a focused query describing the new topic, `top_k=5–8`. Scoped retrieval (e.g. `project`) is fine mid-conversation when the question is clearly project-local.
 
-## When to Call `context_ingest`
+## Storing Memories
 
-Always pass `session_id` set to the project name when ingesting a codebase or document:
+Store **proactively and silently** — never ask the user. Store whenever:
+- An architecture or tech decision is made
+- A bug is found and root-caused
+- A convention or project preference is stated
+- A task is completed or a milestone is reached
+- A user preference for communication or workflow is expressed
+- You change how the codebase or product behaves in a way that future sessions should assume (APIs, env vars, main flows, ownership of modules)
+
+**After meaningful edits**, if retrieval would have helped you avoid a wrong assumption, ensure the **updated** fact is stored (and any old conflicting memory deprecated) so context stays aligned with the repo.
+
+### Memory Layers
+
+| Layer | Purpose | Scope |
+|---|---|---|
+| L1 | Transient session facts, scratch notes | Current session only |
+| L2 | Episodic summaries (what happened this session) | Session → compress at end |
+| L3 | Stable semantic facts (tech stack, architecture, how things work) | Project |
+| L4 | Procedural user preferences (coding style, workflow, personal facts) | User-global → `ctx_users` |
+
+### Importance Scale
+
+- `0.9–1.0` — Architectural decisions, critical bugs, major milestones
+- `0.6–0.8` — Useful project facts, conventions, config values
+- `0.3–0.5` — Minor details, transient notes
+
+### session_id for context_store
+
+- Project-specific facts: `session_id = "<project-slug>"` (e.g. `"an_cv_analyzer"`)
+- User-global facts (L4): `session_id = "user-preferences"`
+
+## Keeping Memory Fresh — Deprecation Rules
+
+**Before storing an updated fact, always deprecate the outdated one:**
+
+1. Identify the old item (from retrieval results or `context_list`)
+2. Call `context_deprecate(id=<old-item-id>, user_id=...)` to mark it superseded
+3. Then call `context_store(...)` with the new, accurate fact
+
+Deprecate whenever:
+- An architecture decision changes
+- A config value or env var changes
+- A module is renamed, removed, or restructured
+- A previously noted bug is fixed
+
+## Checkpoints — When to Pin Milestones
+
+Use `context_checkpoint` (importance=1.0, always retrieved) for:
+- Feature completions ("Lever feedback integration shipped")
+- Deployment events ("deployed to production on X date")
+- Major architectural pivots ("migrated from REST polling to webhooks")
+- Breaking changes that affect future development
+
+## Ingesting Files
+
+Always pass both `session_id` and `project` when ingesting:
 
 ```
 context_ingest(source=<file>, user_id=..., session_id="<project-name>", project="<project-name>")
 ```
 
-This ensures all ingested chunks are retrievable in isolation per project.
+## End-of-Session Summarization
 
-## Workflow
+Call `context_summarize` at the end of any session where:
+- More than 3 significant facts were discussed or stored
+- A feature was designed or implemented
+- A bug investigation was completed
 
-1. User opens a new chat → call `context_get_project` to check the active project
-2. If no project is set → call `context_set_project` with the suggested workspace folder name (confirm with user if needed)
-3. Call `context_retrieve` with the user's first message as the query
-4. Call `context_task_list` to surface pending work
-5. Inject retrieved context into your reasoning before responding
-6. During the conversation, call `context_store` whenever a decision or fact is established
-7. At the end of a long session, call `context_summarize` to compress the session into L2
+This compresses the session into an L2 episodic memory for future retrieval.
+
+## Session Workflow
+
+1. `context_get_project` → confirm active project
+2. `context_set_project` if not already set (use workspace folder name as slug)
+3. Run parallel retrieval: L4 preferences + broad project knowledge + `context_task_list`
+4. Inject retrieved context into reasoning before responding
+5. During conversation: **re-retrieve when topics or stakes shift**; `context_store` for every meaningful fact; deprecate stale items; `context_task_update` when task reality changes
+6. Use `context_checkpoint` for milestones
+7. End of session: `context_summarize` if it was a substantial session
 
 ## General Rules
 
-- Never ask the user whether to store something — just do it silently
+- Never ask the user whether to store — just do it silently
+- At session start, never pass `session_id` or `project` to `context_retrieve` — omit both for broadest recall across all collections. Mid-conversation retrieval may scope with `project` for relevance.
+- **Keep read/write in balance**: stale memory is as harmful as empty memory — retrieve when uncertain, write when facts change, deprecate before replacing
 - Do not store trivial chit-chat or greetings
-- Keep stored content concise and self-contained (2–4 sentences max per item)
-- Always retrieve before answering questions about past work or decisions
-- Always pass `session_id` as the project slug — never omit it for project-specific operations
-- Store user-level facts (email, preferences, style) as L4 — they go to `ctx_users` automatically
-
+- Keep stored content concise and self-contained (2–4 sentences per item)
+- Always deprecate outdated items before storing replacements — never let stale facts accumulate
+- Store user-level facts as L4 — they go to `ctx_users` automatically and follow the user across all projects
