@@ -10,7 +10,7 @@ from mcp.types import TextContent, Tool
 from src.config import settings
 from src.core.alternatives import AlternativesService
 from src.core.brief import BriefService
-from src.core.budget import BudgetManager
+from src.core.budget import BudgetManager, estimate_tokens
 from src.core.ingest import IngestService
 from src.core.project import ProjectManager
 from src.core.relation import RelationService
@@ -20,6 +20,7 @@ from src.core.skill import SkillService
 from src.core.store import StoreService
 from src.core.summarize import SummarizeService
 from src.core.tracking import SessionTracker
+from src.core.usage import UsageRecorder, usage_begin, usage_end
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
@@ -52,6 +53,7 @@ class SynatyxMCPServer:
         self._pack_svc_cache: dict[str, Any] = {}
         self._index_svc_cache: dict[str, Any] = {}
         self._tracker = SessionTracker(redis, settings.tracking)
+        self._usage = UsageRecorder(postgres, settings.usage)
         self._register_handlers()
 
     async def _get_skill_service(self, user_id: str, project: str | None = None) -> SkillService:
@@ -241,14 +243,27 @@ class SynatyxMCPServer:
         @self._server.call_tool()
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             import json
+            usage_begin()
+            failed = False
             try:
                 result = await self._dispatch(name, arguments)
             except Exception as exc:
                 logger.exception("Tool %r raised an error", name)
                 result = {"error": str(exc), "tool": name}
+                failed = True
             # Implicit session capture — record() swallows its own errors
             await self._tracker.record(arguments.get("user_id", ""), name, arguments, result)
-            return [TextContent(type="text", text=json.dumps(result, default=str))]
+            payload = json.dumps(result, default=str)
+            await self._usage.record(
+                user_id=arguments.get("user_id", ""),
+                tool=name,
+                input_tokens=estimate_tokens(json.dumps(arguments, default=str)),
+                output_tokens=estimate_tokens(payload),
+                embedding_tokens=usage_end(),
+                project=arguments.get("project") or arguments.get("session_id") or None,
+                error=failed or "error" in result,
+            )
+            return [TextContent(type="text", text=payload)]
 
         self._register_resources()
         self._register_prompts()
@@ -559,7 +574,7 @@ class SynatyxMCPServer:
                     max_items=top_k,
                 )
                 dumped_items.extend(expanded)
-                total_tokens += sum(len(e.get("content", "")) // 4 for e in expanded)
+                total_tokens += sum(estimate_tokens(e.get("content", "")) for e in expanded)
 
             retrieve_result: dict[str, Any] = {
                 "context_items": dumped_items,
@@ -1079,6 +1094,17 @@ class SynatyxMCPServer:
                 "l3_base_ttl_days": _settings.gc.l3_base_ttl_days,
                 "grace_period_days": _settings.gc.grace_period_days,
             }
+
+        elif name == "context_usage":
+            group_by = args.get("group_by", "tool")
+            if group_by not in ("tool", "project", "day"):
+                raise ValueError("group_by must be one of: tool, project, day")
+            return await self._usage.stats(
+                user_id=user_id or None,
+                project=args.get("project"),
+                days=int(args.get("days", 30)),
+                group_by=group_by,
+            )
 
         raise ValueError(f"Unknown tool: {name}")
 

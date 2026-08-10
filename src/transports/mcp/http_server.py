@@ -27,6 +27,7 @@ from src.transports.mcp.dashboard import (
     api_items,
     api_overview,
     api_tasks,
+    api_usage,
     api_users,
     dashboard_page,
 )
@@ -283,13 +284,31 @@ async def index_files(request: Request) -> JSONResponse:
             {"error": "files must be a list of {path, content}; prune a list of paths"},
             status_code=400,
         )
+    # Index pushes embed outside the MCP tool loop — meter them like a tool
+    # call so extension-driven indexing shows up in token spend too.
+    from src.core.budget import estimate_tokens
+    from src.core.usage import usage_begin, usage_end
+
+    usage_begin()
+    failed = False
     try:
         result = await svc.index_content(user_id, files, force=bool(body.get("force")))
         pruned = await svc.remove_files(user_id, [str(p) for p in prune]) if prune else 0
-        return JSONResponse({**result.to_dict(), "chunks_pruned": pruned})
+        response: JSONResponse = JSONResponse({**result.to_dict(), "chunks_pruned": pruned})
     except Exception:
         logger.exception("index upload failed")
-        return JSONResponse({"error": "index failed"}, status_code=500)
+        failed = True
+        response = JSONResponse({"error": "index failed"}, status_code=500)
+    await request.app.state.synatyx._usage.record(
+        user_id=user_id,
+        tool="index_push",
+        input_tokens=estimate_tokens("".join(str(f.get("content", "")) for f in files if isinstance(f, dict))),
+        output_tokens=0,
+        embedding_tokens=usage_end(),
+        project=body.get("project") or None,
+        error=failed,
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +355,7 @@ app = Starlette(
         Route("/dashboard/api/indexes", api_indexes),
         Route("/dashboard/api/index_graph", api_index_graph),
         Route("/dashboard/api/index_chunks", api_index_chunks),
+        Route("/dashboard/api/usage", api_usage),
     ],
     middleware=_middleware,
     lifespan=lifespan,

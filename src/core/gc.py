@@ -53,6 +53,18 @@ class GarbageCollector:
             for k, v in stats.items():
                 totals[k] += v
 
+        # Usage metering rows are append-only telemetry — cap their history
+        from src.config import settings as _app_settings
+        retention = _app_settings.usage.retention_days
+        if retention > 0:
+            try:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=retention)
+                pruned = await self._postgres.usage_prune(before=cutoff)
+                if pruned:
+                    logger.info("GC run %s pruned %d tool_usage rows older than %dd", run_id, pruned, retention)
+            except Exception:
+                logger.exception("tool_usage prune failed")
+
         logger.info(
             "GC run %s finished — deprecated=%d deleted=%d skipped=%d",
             run_id,

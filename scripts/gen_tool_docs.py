@@ -38,7 +38,7 @@ CATEGORIES: dict[str, list[str]] = {
         "context_skill_store", "context_skill_find", "context_skill_get",
         "context_skill_list", "context_skill_delete",
     ],
-    "Maintenance": ["context_consolidate", "context_gc_stats"],
+    "Maintenance": ["context_consolidate", "context_gc_stats", "context_usage"],
 }
 
 

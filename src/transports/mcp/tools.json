@@ -1083,5 +1083,34 @@
         "user_id"
       ]
     }
+  },
+  {
+    "name": "context_usage",
+    "description": "Report token spend metered per tool call: outbound context tokens (what tool responses inject into the agent's context), inbound argument tokens, and embedding-API tokens with estimated USD cost. Returns totals plus a breakdown grouped by tool, project, or day.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Only count calls attributed to this project slug (optional)"
+        },
+        "days": {
+          "type": "integer",
+          "description": "Time window in days (default: 30)"
+        },
+        "group_by": {
+          "type": "string",
+          "enum": ["tool", "project", "day"],
+          "description": "Breakdown dimension (default: tool)"
+        }
+      },
+      "required": [
+        "user_id"
+      ]
+    }
   }
 ]
