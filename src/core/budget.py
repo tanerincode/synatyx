@@ -10,6 +10,12 @@ from src.models.memory_layer import MemoryLayer
 # Default token budget per layer (doc section 2.4)
 DEFAULT_TOTAL_BUDGET = 128_000
 
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate (~4 chars/token) — the single estimator used
+    everywhere so budgets and usage metering stay comparable."""
+    return len(text) // 4
+
 FIXED_ALLOCATIONS: dict[str, int] = {
     "system_prompt": 2_000,
     "current_message": 1_000,

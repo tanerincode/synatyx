@@ -5,7 +5,9 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
+    Index,
     Integer,
     String,
     Text,
@@ -111,6 +113,24 @@ class TaskRow(Base):
     project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ToolUsageRow(Base):
+    __tablename__ = "tool_usage"
+    __table_args__ = (
+        Index("ix_tool_usage_user_created", "user_id", "created_at"),
+        Index("ix_tool_usage_project_created", "project", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    project: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedding_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class MemoryRelationRow(Base):
@@ -361,6 +381,114 @@ class PostgresStorage:
                 reason=reason,
             ))
             await session.commit()
+
+    # ── Tool Usage ───────────────────────────────────────────────────────────
+
+    async def usage_add(
+        self,
+        user_id: str,
+        tool: str,
+        input_tokens: int,
+        output_tokens: int,
+        embedding_tokens: int = 0,
+        project: str | None = None,
+        error: bool = False,
+    ) -> None:
+        async with self._session_factory() as session:
+            session.add(ToolUsageRow(
+                user_id=user_id,
+                project=project,
+                tool=tool,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                embedding_tokens=embedding_tokens,
+                error=error,
+            ))
+            await session.commit()
+
+    async def usage_totals(
+        self,
+        user_id: str | None = None,
+        project: str | None = None,
+        since: datetime | None = None,
+    ) -> dict[str, int]:
+        async with self._session_factory() as session:
+            stmt = select(
+                func.count(ToolUsageRow.id),
+                func.coalesce(func.sum(ToolUsageRow.input_tokens), 0),
+                func.coalesce(func.sum(ToolUsageRow.output_tokens), 0),
+                func.coalesce(func.sum(ToolUsageRow.embedding_tokens), 0),
+            )
+            stmt = self._usage_filters(stmt, user_id, project, since)
+            calls, inp, out, emb = (await session.execute(stmt)).one()
+            return {
+                "calls": calls,
+                "input_tokens": int(inp),
+                "output_tokens": int(out),
+                "embedding_tokens": int(emb),
+            }
+
+    async def usage_stats(
+        self,
+        user_id: str | None = None,
+        project: str | None = None,
+        since: datetime | None = None,
+        group_by: str = "tool",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Aggregated usage grouped by tool, project, or day."""
+        if group_by == "project":
+            key = func.coalesce(ToolUsageRow.project, "")
+        elif group_by == "day":
+            key = func.date_trunc("day", ToolUsageRow.created_at)
+        else:
+            key = ToolUsageRow.tool
+        async with self._session_factory() as session:
+            stmt = select(
+                key.label("key"),
+                func.count(ToolUsageRow.id),
+                func.coalesce(func.sum(ToolUsageRow.input_tokens), 0),
+                func.coalesce(func.sum(ToolUsageRow.output_tokens), 0),
+                func.coalesce(func.sum(ToolUsageRow.embedding_tokens), 0),
+            )
+            stmt = self._usage_filters(stmt, user_id, project, since)
+            stmt = stmt.group_by(key)
+            # day series reads chronologically; tool/project ranked by spend
+            if group_by == "day":
+                stmt = stmt.order_by(key)
+            else:
+                stmt = stmt.order_by(func.sum(ToolUsageRow.output_tokens).desc())
+            stmt = stmt.limit(limit)
+            rows = (await session.execute(stmt)).all()
+            return [
+                {
+                    group_by: k.isoformat()[:10] if isinstance(k, datetime) else k,
+                    "calls": calls,
+                    "input_tokens": int(inp),
+                    "output_tokens": int(out),
+                    "embedding_tokens": int(emb),
+                }
+                for k, calls, inp, out, emb in rows
+            ]
+
+    async def usage_prune(self, before: datetime) -> int:
+        """Delete usage rows older than the cutoff. Returns rows removed."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                delete(ToolUsageRow).where(ToolUsageRow.created_at < before)
+            )
+            await session.commit()
+            return result.rowcount or 0
+
+    @staticmethod
+    def _usage_filters(stmt, user_id: str | None, project: str | None, since: datetime | None):
+        if user_id:
+            stmt = stmt.where(ToolUsageRow.user_id == user_id)
+        if project:
+            stmt = stmt.where(ToolUsageRow.project == project)
+        if since:
+            stmt = stmt.where(ToolUsageRow.created_at >= since)
+        return stmt
 
     # ── Memory Relations ─────────────────────────────────────────────────────
 

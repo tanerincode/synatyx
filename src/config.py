@@ -201,6 +201,26 @@ class TrackingSettings(BaseSettings):
     )
 
 
+class UsageSettings(BaseSettings):
+    """Token spend metering — one Postgres row per tool call.
+
+    Records inbound (arguments), outbound (response) and embedding-API token
+    counts per user/project/tool. Surfaced via the context_usage tool and the
+    dashboard Usage tab.
+    """
+
+    enabled: bool = True
+    # USD per 1M embedding tokens; default matches text-embedding-3-small.
+    # Cost is computed at read time, so a price change applies retroactively.
+    embedding_price_per_mtok: float = 0.02
+    # usage rows older than this are pruned by the GC daemon
+    retention_days: int = 90
+
+    model_config = SettingsConfigDict(
+        env_prefix="USAGE_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
+    )
+
+
 def _default_user_id() -> str:
     import getpass
     try:
@@ -235,6 +255,7 @@ class Settings(BaseSettings):
     observer: ObserverSettings = Field(default_factory=ObserverSettings)
     tracking: TrackingSettings = Field(default_factory=TrackingSettings)
     index: IndexSettings = Field(default_factory=IndexSettings)
+    usage: UsageSettings = Field(default_factory=UsageSettings)
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

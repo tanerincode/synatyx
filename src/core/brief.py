@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from src.core.budget import estimate_tokens
 from src.models.context import ContextItem
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
@@ -202,7 +203,7 @@ class BriefService:
                 "priority": t.priority,
                 "description": (t.description or "")[:200],
             }
-            tokens = (len(t.title) + len(entry["description"])) // 4
+            tokens = estimate_tokens(t.title + entry["description"])
             if used + tokens > budget_tokens and tasks:
                 break
             tasks.append(entry)
