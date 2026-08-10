@@ -18,6 +18,7 @@ from src.transports.mcp.dashboard import (
     api_items,
     api_overview,
     api_tasks,
+    api_usage,
     api_users,
     dashboard_page,
 )
@@ -86,10 +87,47 @@ class FakeQdrant:
 
 class FakePostgres:
     def __init__(
-        self, tasks: list[Task], relations: list[MemoryRelation] | None = None
+        self,
+        tasks: list[Task],
+        relations: list[MemoryRelation] | None = None,
+        usage: list[dict[str, Any]] | None = None,
     ) -> None:
         self._tasks = tasks
         self._relations = relations or []
+        self._usage = usage or []
+
+    async def usage_totals(self, user_id=None, project=None, since=None) -> dict[str, Any]:
+        rows = self._usage_rows(user_id, project)
+        return {
+            "calls": len(rows),
+            "input_tokens": sum(r["input_tokens"] for r in rows),
+            "output_tokens": sum(r["output_tokens"] for r in rows),
+            "embedding_tokens": sum(r["embedding_tokens"] for r in rows),
+        }
+
+    async def usage_stats(
+        self, user_id=None, project=None, since=None, group_by="tool", limit=100
+    ) -> list[dict[str, Any]]:
+        rows = self._usage_rows(user_id, project)
+        grouped: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            key = r.get(group_by) or ("" if group_by == "project" else r["tool"])
+            agg = grouped.setdefault(key, {
+                group_by: key, "calls": 0,
+                "input_tokens": 0, "output_tokens": 0, "embedding_tokens": 0,
+            })
+            agg["calls"] += 1
+            for k in ("input_tokens", "output_tokens", "embedding_tokens"):
+                agg[k] += r[k]
+        return list(grouped.values())
+
+    def _usage_rows(self, user_id, project) -> list[dict[str, Any]]:
+        rows = self._usage
+        if user_id:
+            rows = [r for r in rows if r.get("user_id") == user_id]
+        if project:
+            rows = [r for r in rows if r.get("project") == project]
+        return rows
 
     async def task_list_all(
         self, status: TaskStatus | None = None, limit: int = 50
@@ -132,6 +170,7 @@ def _client(
     collections: dict[str, list[dict[str, Any]]],
     tasks: list[Task],
     relations: list[MemoryRelation] | None = None,
+    usage: list[dict[str, Any]] | None = None,
 ) -> TestClient:
     app = Starlette(
         routes=[
@@ -144,10 +183,11 @@ def _client(
             Route("/dashboard/api/indexes", api_indexes),
             Route("/dashboard/api/index_graph", api_index_graph),
             Route("/dashboard/api/index_chunks", api_index_chunks),
+            Route("/dashboard/api/usage", api_usage),
         ]
     )
     app.state.qdrant = FakeQdrant(collections)
-    app.state.postgres = FakePostgres(tasks, relations)
+    app.state.postgres = FakePostgres(tasks, relations, usage)
     return TestClient(app)
 
 
@@ -442,3 +482,49 @@ def test_index_chunks_filter_and_order() -> None:
 
     bad = client.get("/dashboard/api/index_chunks?collection=ctx_myapp")
     assert bad.status_code == 400
+
+
+def _usage_row(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "user_id": "u1",
+        "project": "synatyx",
+        "tool": "context_retrieve",
+        "input_tokens": 10,
+        "output_tokens": 500,
+        "embedding_tokens": 8,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_usage_totals_breakdowns_and_cost() -> None:
+    client = _client({"ctx_synatyx": [_item()]}, [], usage=[
+        _usage_row(),
+        _usage_row(tool="context_store", output_tokens=100, embedding_tokens=1_000_000),
+        _usage_row(project="other", tool="context_brief", output_tokens=900),
+    ])
+    data = client.get("/dashboard/api/usage?days=30").json()
+    assert data["totals"]["calls"] == 3
+    assert data["totals"]["output_tokens"] == 1500
+    assert data["totals"]["embedding_cost_usd"] > 0
+    tools = {r["tool"] for r in data["by_tool"]}
+    assert tools == {"context_retrieve", "context_store", "context_brief"}
+    projects = {r["project"] for r in data["by_project"]}
+    assert projects == {"synatyx", "other"}
+
+
+def test_usage_project_filter_and_validation() -> None:
+    client = _client({"ctx_synatyx": [_item()]}, [], usage=[
+        _usage_row(),
+        _usage_row(project="other", output_tokens=900),
+    ])
+    data = client.get("/dashboard/api/usage?project=other").json()
+    assert data["totals"]["calls"] == 1
+    assert data["totals"]["output_tokens"] == 900
+
+    assert client.get("/dashboard/api/usage?days=nope").status_code == 400
+
+
+def test_usage_503_before_lifespan() -> None:
+    app = Starlette(routes=[Route("/dashboard/api/usage", api_usage)])
+    assert TestClient(app).get("/dashboard/api/usage").status_code == 503

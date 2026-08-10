@@ -238,6 +238,7 @@
     <button class="tab active" data-view="overview">Overview</button>
     <button class="tab" data-view="memories">Recent memories</button>
     <button class="tab" data-view="indexes">Code indexes</button>
+    <button class="tab" data-view="usage">Usage</button>
     <button class="tab" data-view="visualize">Visualize</button>
   </nav>
 
@@ -330,6 +331,40 @@
       <div id="indexes"></div>
     </div>
   </div><!-- /view-indexes -->
+
+  <div id="view-usage" style="display:none">
+    <div class="controls" style="margin-bottom:16px">
+      <label>Window
+        <select id="sel-usage-days">
+          <option value="7">last 7 days</option>
+          <option value="30" selected>last 30 days</option>
+          <option value="90">last 90 days</option>
+        </select>
+      </label>
+      <label>Project
+        <select id="sel-usage-project"><option value="">all</option></select>
+      </label>
+    </div>
+    <div class="tiles" id="usage-tiles"></div>
+    <div class="charts">
+      <div class="card">
+        <h2>Context tokens by tool — what each tool injects into agents</h2>
+        <div id="usage-tool-chart"></div>
+      </div>
+      <div class="card">
+        <h2>Tokens per day</h2>
+        <div class="legend">
+          <span class="key"><span class="swatch" style="background:var(--l3)"></span>context out</span>
+          <span class="key"><span class="swatch" style="background:var(--l4)"></span>embeddings</span>
+        </div>
+        <div id="usage-day-chart"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Spend by project</h2>
+      <div id="usage-projects"></div>
+    </div>
+  </div><!-- /view-usage -->
 
   <div id="view-visualize" style="display:none">
     <div class="vis-split">
@@ -1114,7 +1149,7 @@ async function boot() {
       "v" + srv.version + " · " + srv.tools + " tools · " + srv.commit;
   }
   $("updated").textContent = "synced " + new Date().toLocaleTimeString();
-  await Promise.all([loadItems(), loadTasks(), loadUsers(), loadGraph(), loadIndexes()]);
+  await Promise.all([loadItems(), loadTasks(), loadUsers(), loadGraph(), loadIndexes(), loadUsage()]);
   await Promise.all([loadIndexGraph(), loadIndexChunks()]);
 }
 
@@ -1159,8 +1194,127 @@ async function loadIndexes() {
     }).join("") + "</tbody></table>";
 }
 
+/* ── usage (token spend) ───────────────────────────────────────────────── */
+const fmtTok = (n) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + "M"
+  : n >= 1_000 ? (n / 1_000).toFixed(1) + "k" : String(n);
+
+function renderUsageTiles(t) {
+  const tiles = [
+    { label: "Tool calls", value: t.calls.toLocaleString(), hero: true },
+    { label: "Context tokens out", value: fmtTok(t.output_tokens), note: "injected into agent context" },
+    { label: "Argument tokens in", value: fmtTok(t.input_tokens) },
+    { label: "Embedding tokens", value: fmtTok(t.embedding_tokens) },
+    { label: "Embedding cost", value: "$" + t.embedding_cost_usd.toFixed(4) },
+  ];
+  $("usage-tiles").innerHTML = tiles.map((x) => `
+    <div class="card tile${x.hero ? " hero" : ""}">
+      <div class="label">${esc(x.label)}</div>
+      <div class="value">${esc(x.value)}</div>
+      ${x.note ? `<div class="note">${esc(x.note)}</div>` : ""}
+    </div>`).join("");
+}
+
+/* Static horizontal bars — value at the bar tip, no hover needed. */
+function renderUsageToolChart(byTool) {
+  const rows = byTool.slice(0, 12);
+  if (!rows.length) {
+    $("usage-tool-chart").innerHTML = `<div class="empty">No usage recorded yet.</div>`;
+    return;
+  }
+  const max = Math.max(1, ...rows.map((r) => r.output_tokens));
+  const W = 620, labelW = 190, valueW = 96, barH = 18, gap = 12, top = 4;
+  const plotW = W - labelW - valueW;
+  const H = top + rows.length * (barH + gap);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Context tokens by tool">`;
+  s += `<line x1="${labelW}" y1="${top}" x2="${labelW}" y2="${H - gap + 4}" stroke="var(--line-2)" stroke-width="1"/>`;
+  rows.forEach((r, i) => {
+    const y = top + i * (barH + gap);
+    const w = Math.max(r.output_tokens > 0 ? 3 : 0, (r.output_tokens / max) * plotW);
+    s += `<text x="${labelW - 8}" y="${y + barH - 4}" text-anchor="end">${esc(r.tool)}</text>`;
+    if (w > 0) {
+      s += `<path d="M${labelW},${y} h${Math.max(0, w - 4)} a4,4 0 0 1 4,4 v${barH - 8} a4,4 0 0 1 -4,4 h-${Math.max(0, w - 4)} z" fill="var(--l3)"/>`;
+    }
+    s += `<text class="val" x="${labelW + w + 8}" y="${y + barH - 4}">${fmtTok(r.output_tokens)} · ${r.calls.toLocaleString()} calls</text>`;
+  });
+  s += "</svg>";
+  $("usage-tool-chart").innerHTML = s;
+}
+
+/* Static grouped columns per day — context-out and embedding tokens. */
+function renderUsageDayChart(byDay) {
+  const rows = byDay.slice(-30);
+  if (!rows.length) {
+    $("usage-day-chart").innerHTML = `<div class="empty">No usage recorded yet.</div>`;
+    return;
+  }
+  const max = Math.max(1, ...rows.map((r) => Math.max(r.output_tokens, r.embedding_tokens)));
+  const W = 620, H = 190, bottom = 26, top = 18;
+  const plotH = H - top - bottom;
+  const slot = W / rows.length, colW = Math.max(2, Math.min(10, slot / 3));
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Tokens per day">`;
+  s += `<line x1="0" y1="${H - bottom}" x2="${W}" y2="${H - bottom}" stroke="var(--line-2)" stroke-width="1"/>`;
+  rows.forEach((r, i) => {
+    const cx = i * slot + slot / 2;
+    const hOut = (r.output_tokens / max) * plotH;
+    const hEmb = (r.embedding_tokens / max) * plotH;
+    if (hOut > 0) s += `<rect x="${cx - colW}" y="${H - bottom - hOut}" width="${colW}" height="${hOut}" fill="var(--l3)"/>`;
+    if (hEmb > 0) s += `<rect x="${cx + 1}" y="${H - bottom - hEmb}" width="${colW}" height="${hEmb}" fill="var(--l4)"/>`;
+    const label = r.day.slice(5); /* MM-DD */
+    if (rows.length <= 10 || i % Math.ceil(rows.length / 10) === 0) {
+      s += `<text x="${cx}" y="${H - 8}" text-anchor="middle" style="font-size:10px">${esc(label)}</text>`;
+    }
+  });
+  s += `<text x="4" y="${top - 6}" style="font-size:10px">peak ${fmtTok(max)}/day</text>`;
+  s += "</svg>";
+  $("usage-day-chart").innerHTML = s;
+}
+
+function renderUsageProjects(byProject) {
+  if (!byProject.length) {
+    $("usage-projects").innerHTML = `<div class="empty">No usage recorded yet.</div>`;
+    return;
+  }
+  $("usage-projects").innerHTML =
+    '<table><thead><tr><th>Project</th><th class="num">Calls</th><th class="num">Context out</th>' +
+    '<th class="num">Args in</th><th class="num">Embedding</th></tr></thead><tbody>' +
+    byProject.map((p) => `<tr>
+      <td>${esc(p.project || "—")}</td>
+      <td class="num">${p.calls.toLocaleString()}</td>
+      <td class="num">${fmtTok(p.output_tokens)}</td>
+      <td class="num">${fmtTok(p.input_tokens)}</td>
+      <td class="num">${fmtTok(p.embedding_tokens)}</td>
+    </tr>`).join("") + "</tbody></table>";
+}
+
+async function loadUsage() {
+  const params = new URLSearchParams({ days: $("sel-usage-days").value });
+  if ($("sel-usage-project").value) params.set("project", $("sel-usage-project").value);
+  let data;
+  try {
+    data = await api("/dashboard/api/usage?" + params);
+  } catch (e) {
+    if (e.message !== "unauthorized") {
+      $("usage-tiles").innerHTML = `<div class="empty">Failed to load usage (${esc(e.message)}).</div>`;
+    }
+    return;
+  }
+  renderUsageTiles(data.totals);
+  renderUsageToolChart(data.by_tool);
+  renderUsageDayChart(data.by_day);
+  renderUsageProjects(data.by_project);
+  /* keep the project filter options in sync (only when unfiltered) */
+  const sel = $("sel-usage-project");
+  if (!sel.value) {
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">all</option>' + data.by_project
+      .filter((p) => p.project)
+      .map((p) => `<option value="${esc(p.project)}">${esc(p.project)}</option>`).join("");
+    sel.value = prev;
+  }
+}
+
 /* ── view tabs ─────────────────────────────────────────────────────────── */
-const VIEWS = ["overview", "memories", "indexes", "visualize"];
+const VIEWS = ["overview", "memories", "indexes", "usage", "visualize"];
 function showView(name) {
   for (const v of VIEWS) $("view-" + v).style.display = v === name ? "" : "none";
   document.querySelectorAll(".nav .tab").forEach((b) =>
@@ -1186,6 +1340,8 @@ $("sel-graph-collection").addEventListener("change", () => {
   loadItems(); loadUsers(); loadGraph();
 });
 $("sel-layer").addEventListener("change", loadItems);
+$("sel-usage-days").addEventListener("change", loadUsage);
+$("sel-usage-project").addEventListener("change", loadUsage);
 $("sel-user").addEventListener("change", () => { selectedUser = $("sel-user").value; loadItems(); loadUsers(); });
 $("sel-graph-user").addEventListener("change", loadGraph);
 $("sel-index").addEventListener("change", () => {

@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from src.core.budget import BudgetEntry, SectionBudgeter
+from src.core.budget import BudgetEntry, SectionBudgeter, estimate_tokens
 from src.core.embedder import get_embedder
 from src.models.context import ContextItem
 from src.models.memory_layer import MemoryLayer
@@ -92,7 +92,7 @@ def _entry_for_item(item: ContextItem, score: float | None = None) -> BudgetEntr
 
 def _entry_for_dict(payload: dict[str, Any], content: str) -> BudgetEntry:
     return BudgetEntry(
-        tokens=len(content) // 4,
+        tokens=estimate_tokens(content),
         payload=payload,
         raw_content=content,
     )
@@ -213,7 +213,7 @@ class PackService:
             top = packed_sections["skills"][0]
             body = top.get("_body")
             if body:
-                body_tokens = len(body) // 4 - len(top.get("description", "")) // 4
+                body_tokens = estimate_tokens(body) - estimate_tokens(top.get("description", ""))
                 if 0 < body_tokens <= leftover:
                     top["content"] = body
                     top["body_included"] = True

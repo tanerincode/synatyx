@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-Synatyx exposes **31 MCP tools**. This file is generated from `src/transports/mcp/tools.json` by `scripts/gen_tool_docs.py` — edit the JSON, then regenerate.
+Synatyx exposes **32 MCP tools**. This file is generated from `src/transports/mcp/tools.json` by `scripts/gen_tool_docs.py` — edit the JSON, then regenerate.
 
 ## Context Assembly
 
@@ -378,3 +378,14 @@ Return garbage collection statistics for the active project — how many items a
 |-------|------|----------|-------------|
 | `user_id` | string | yes | User identifier |
 | `project` | string | no | Project slug to operate in — overrides the active-project pointer for this call. Pass it in multi-session setups so concurrent sessions in different projects don't route into each other's collections (optional) |
+
+### `context_usage`
+
+Report token spend metered per tool call: outbound context tokens (what tool responses inject into the agent's context), inbound argument tokens, and embedding-API tokens with estimated USD cost. Returns totals plus a breakdown grouped by tool, project, or day.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `project` | string | no | Only count calls attributed to this project slug (optional) |
+| `days` | integer | no | Time window in days (default: 30) |
+| `group_by` | `tool` \| `project` \| `day` | no | Breakdown dimension (default: tool) |
