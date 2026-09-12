@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -17,6 +17,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
@@ -131,6 +132,29 @@ class ToolUsageRow(Base):
     embedding_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class OAuthClientRow(Base):
+    """Dynamically registered OAuth client (RFC 7591).
+
+    The whole registration document is kept in `data` so the row survives SDK
+    model changes; `client_name` is denormalised only for readable admin
+    queries. Registrations must be durable — a restart that forgets them breaks
+    every connector that was already set up.
+    """
+
+    __tablename__ = "oauth_clients"
+
+    client_id: Mapped[str] = mapped_column(String, primary_key=True)
+    client_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    # First successful token issuance. NULL means the registration never
+    # completed a handshake and may be pruned (anonymous /register is open).
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MemoryRelationRow(Base):
@@ -489,6 +513,56 @@ class PostgresStorage:
         if since:
             stmt = stmt.where(ToolUsageRow.created_at >= since)
         return stmt
+
+    # ── OAuth Clients (dynamic client registration) ──────────────────────────
+
+    async def oauth_client_upsert(self, client_id: str, data: dict[str, Any]) -> None:
+        """Persist a client registration document (insert or replace)."""
+        name = data.get("client_name")
+        async with self._session_factory() as session:
+            row = await session.get(OAuthClientRow, client_id)
+            if row is None:
+                session.add(OAuthClientRow(
+                    client_id=client_id,
+                    client_name=str(name) if name else None,
+                    data=data,
+                ))
+            else:
+                row.client_name = str(name) if name else None
+                row.data = data  # updated_at moves via the column's onupdate
+            await session.commit()
+
+    async def oauth_client_get(self, client_id: str) -> dict[str, Any] | None:
+        async with self._session_factory() as session:
+            row = await session.get(OAuthClientRow, client_id)
+        return dict(row.data) if row is not None else None
+
+    async def oauth_client_count(self) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(select(func.count()).select_from(OAuthClientRow))
+        return int(result.scalar_one())
+
+    async def oauth_client_touch(self, client_id: str) -> None:
+        """Mark a registration as used (a token was issued to it)."""
+        async with self._session_factory() as session:
+            await session.execute(
+                update(OAuthClientRow)
+                .where(OAuthClientRow.client_id == client_id)
+                .values(last_used_at=func.now())
+            )
+            await session.commit()
+
+    async def oauth_client_prune_unused(self, older_than_seconds: int) -> int:
+        """Delete registrations that never obtained a token and are older than the cutoff."""
+        cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+        async with self._session_factory() as session:
+            result = await session.execute(
+                delete(OAuthClientRow)
+                .where(OAuthClientRow.last_used_at.is_(None))
+                .where(OAuthClientRow.created_at < cutoff)
+            )
+            await session.commit()
+        return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
     # ── Memory Relations ─────────────────────────────────────────────────────
 

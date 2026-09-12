@@ -164,6 +164,34 @@ class RedisStorage:
         return events
 
     # -------------------------------------------------------------------------
+    # Generic TTL'd key/value (OAuth codes & tokens — see src/core/oauth.py)
+    # -------------------------------------------------------------------------
+
+    async def kv_set(self, key: str, value: str, ttl_seconds: int) -> None:
+        """Store a string under an explicit key with a mandatory expiry."""
+        await self._client.set(key, value, ex=ttl_seconds)
+
+    async def kv_get(self, key: str) -> str | None:
+        raw = await self._client.get(key)
+        return str(raw) if raw is not None else None
+
+    async def kv_delete(self, key: str) -> int:
+        """Delete a key; returns the number of keys removed (0 or 1)."""
+        return int(await self._client.delete(key))
+
+    async def kv_incr(self, key: str, ttl_seconds: int) -> int:
+        """Atomically increment a counter; the TTL is set when the key is created.
+
+        INCR + EXPIRE run in one MULTI/EXEC block so a counter can never be
+        left without an expiry (which would lock a client IP out forever).
+        """
+        async with self._client.pipeline(transaction=True) as pipe:
+            pipe.incr(key)
+            pipe.expire(key, ttl_seconds, nx=True)
+            count, _ = await pipe.execute()
+        return int(count)
+
+    # -------------------------------------------------------------------------
     # Lifecycle
     # -------------------------------------------------------------------------
 
