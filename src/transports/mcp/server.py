@@ -228,6 +228,157 @@ class SynatyxMCPServer:
         )
         return {"item_id": item_ids[0], "item_ids": item_ids, "embedded": embedded}
 
+    async def run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Run one tool exactly as the MCP transport runs it, returning the raw dict.
+
+        Everything that wraps a tool call — token metering, implicit session
+        capture, turning an exception into an `error` result instead of a
+        stack trace — belongs to the call, not to the transport that carried
+        it. Keeping it here is what lets a second transport (the REST API)
+        expose the same tools without either duplicating that wrapper or
+        quietly skipping half of it, which is how a REST caller's spend would
+        otherwise go unmetered.
+        """
+        import json
+
+        usage_begin()
+        failed = False
+        try:
+            result = await self._dispatch(name, arguments)
+        except Exception as exc:
+            logger.exception("Tool %r raised an error", name)
+            # The exception's type rides along so a caller can tell a bad
+            # argument from a backend that fell over. Both arrive here as an
+            # `error` string, and a transport that cannot distinguish them
+            # reports the caller's own typo as an outage.
+            result = {"error": str(exc), "tool": name, "error_type": type(exc).__name__}
+            failed = True
+
+        # record() swallows its own errors
+        await self._tracker.record(arguments.get("user_id", ""), name, arguments, result)
+        payload = json.dumps(result, default=str)
+        await self._usage.record(
+            user_id=arguments.get("user_id", ""),
+            tool=name,
+            input_tokens=estimate_tokens(json.dumps(arguments, default=str)),
+            output_tokens=estimate_tokens(payload),
+            embedding_tokens=usage_end(),
+            project=arguments.get("project") or arguments.get("session_id") or None,
+            error=failed or "error" in result,
+        )
+        return result
+
+    async def ingest_source(
+        self,
+        user_id: str,
+        project: str,
+        source_id: str,
+        url: str | None = None,
+        text: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        memory_layer: str = "L3",
+        importance: float = 0.8,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest one document, from a URL the server fetches or from text the
+        caller pushes, tagged with the caller's source id so it can be
+        re-synced or retired later as a unit."""
+        from src.models.memory_layer import MemoryLayer as ML
+
+        if (url is None) == (text is None):
+            raise ValueError("exactly one of url or text is required")
+
+        _, _, _, ingest, _ = await self._get_services(user_id, project)
+        meta: dict[str, Any] = {**(metadata or {}), "source_id": source_id}
+
+        if url is not None:
+            result = await ingest.ingest(
+                source=url,
+                user_id=user_id,
+                memory_layer=ML(memory_layer),
+                importance=importance,
+                project=project,
+                session_id=session_id,
+                metadata=meta,
+            )
+        else:
+            # Pushed text has no location of its own, so `source` falls back to
+            # the caller's source id. A url in the metadata is preferred when
+            # there is one: the caller fetched the document itself, and its
+            # address is more useful on the chunk than an opaque id.
+            meta_url = (metadata or {}).get("url")
+            result = await ingest.ingest_text(
+                text=text or "",
+                user_id=user_id,
+                source=meta_url if isinstance(meta_url, str) and meta_url.strip() else source_id,
+                memory_layer=ML(memory_layer),
+                importance=importance,
+                project=project,
+                session_id=session_id,
+                metadata=meta,
+            )
+
+        return {
+            "source_id": source_id,
+            "source": result.source,
+            "chunks_stored": result.chunks_stored,
+            "chunks_failed": result.chunks_failed,
+            "total_chunks": result.total_chunks,
+        }
+
+    async def deprecate_source(
+        self, user_id: str, project: str, source_id: str, reason: str | None = None
+    ) -> dict[str, Any]:
+        """Deprecate every live item that came from one source id."""
+        from src.core.sources import SourceService
+
+        storage, _, _, _, _ = await self._get_services(user_id, project)
+        deprecated = await SourceService(storage).deprecate_source(
+            user_id=user_id, source_id=source_id, reason=reason
+        )
+        return {"source_id": source_id, "deprecated": deprecated}
+
+    async def summarize_session(
+        self,
+        user_id: str,
+        project: str,
+        session_id: str,
+        max_tokens: int = 500,
+        focus: str | None = None,
+    ) -> dict[str, Any]:
+        """Summarize a session's working memory and return the summary.
+
+        The `context_summarize` tool schedules this and returns immediately,
+        which is right for an agent compacting its own context in the
+        background. A caller that needs the summary *in* the turn it is
+        building — a rolling conversation summary about to go into a prompt —
+        has nothing to wait on, so this awaits the same work instead.
+        """
+        from src.core.summarize import SummarizeService
+
+        _, _, store, _, _ = await self._get_services(user_id, project)
+        result = await SummarizeService(self._redis, self._postgres, store=store).summarize(
+            session_id=session_id,
+            user_id=user_id,
+            max_tokens=max_tokens,
+            focus=focus,
+        )
+        return {
+            "summary": result.summary,
+            "key_entities": [
+                entity.model_dump() if hasattr(entity, "model_dump") else entity
+                for entity in result.key_entities
+            ],
+            "tokens_saved": result.tokens_saved,
+        }
+
+    async def erase_user(self, user_id: str) -> dict[str, Any]:
+        """Hard-delete a user's items from every collection, for erasure requests."""
+        from src.core.sources import erase_user as erase
+
+        storage = await self._project_manager.get_l4_storage()
+        return {"user_id": user_id, **await erase(storage, user_id)}
+
     def _register_handlers(self) -> None:
         @self._server.list_tools()
         async def list_tools() -> list[Tool]:
@@ -243,27 +394,8 @@ class SynatyxMCPServer:
         @self._server.call_tool()
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             import json
-            usage_begin()
-            failed = False
-            try:
-                result = await self._dispatch(name, arguments)
-            except Exception as exc:
-                logger.exception("Tool %r raised an error", name)
-                result = {"error": str(exc), "tool": name}
-                failed = True
-            # Implicit session capture — record() swallows its own errors
-            await self._tracker.record(arguments.get("user_id", ""), name, arguments, result)
-            payload = json.dumps(result, default=str)
-            await self._usage.record(
-                user_id=arguments.get("user_id", ""),
-                tool=name,
-                input_tokens=estimate_tokens(json.dumps(arguments, default=str)),
-                output_tokens=estimate_tokens(payload),
-                embedding_tokens=usage_end(),
-                project=arguments.get("project") or arguments.get("session_id") or None,
-                error=failed or "error" in result,
-            )
-            return [TextContent(type="text", text=payload)]
+            result = await self.run_tool(name, arguments)
+            return [TextContent(type="text", text=json.dumps(result, default=str))]
 
         self._register_resources()
         self._register_prompts()
