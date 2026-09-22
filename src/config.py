@@ -1,5 +1,6 @@
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -64,10 +65,25 @@ class AuthSettings(BaseSettings):
     # Header clients must send the key in. `Authorization: Bearer <key>` is
     # always accepted as a fallback regardless of this value.
     header_name: str = "X-Auth-Key"
+    # Tenant keys, as a JSON array:
+    #   [{"name": "cx", "key": "...", "projects": ["cx-"],
+    #     "tools": ["context_ingest", "context_retrieve"],
+    #     "routes": ["/mcp", "/v1/ingest", "/v1/retrieve"]}]
+    # Each list is exhaustive and an empty one grants nothing, so a key can
+    # only ever do what it was deliberately given. Requires admin_key: without
+    # an owner key there is no auth at all and scoping would be theatre.
+    scoped_keys: str = ""
 
     @property
     def enabled(self) -> bool:
         return bool(self.admin_key)
+
+    @property
+    def scoped_key_list(self) -> list[Any]:
+        """Parsed tenant keys. A malformed entry is dropped, never fatal."""
+        from src.core.scoped_keys import parse_scoped_keys
+
+        return parse_scoped_keys(self.scoped_keys)
 
     model_config = SettingsConfigDict(env_prefix="AUTH_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 

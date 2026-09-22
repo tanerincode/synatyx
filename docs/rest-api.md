@@ -17,8 +17,10 @@ Every `/v1` route sits behind the same key as the rest of the server: send
 <key>`). `/v1/health` is included — a readiness probe sends the key like any
 other caller.
 
-A key today is a whole-server key. Project-scoped keys, which restrict a caller
-to a set of projects and to these routes, are a separate change.
+A key can be the owner's admin key or a scoped key restricted to a set of
+project prefixes, tools and routes — see [scoped-keys.md](scoped-keys.md). A
+scoped key is refused with `403` and a `detail` naming what was outside its
+scope; the error body is the same envelope as every other error.
 
 ## Conventions
 

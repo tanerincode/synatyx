@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hmac
 import logging
 import os
 import time
@@ -17,10 +16,16 @@ from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from src.config import settings
 from src.core.oauth import SynatyxOAuthProvider
+from src.core.scoped_keys import (
+    AdminScope,
+    ScopedKey,
+    authorize_request,
+    resolve_scope,
+)
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
 from src.storage.redis import RedisStorage
@@ -59,6 +64,34 @@ logger = logging.getLogger(__name__)
 # endpoints, /.well-known/*) bypass the check entirely.
 # ---------------------------------------------------------------------------
 
+async def _buffered_receive(scope: Scope, receive: Receive) -> tuple[bytes | None, Receive]:
+    """Read a request body so it can be inspected, and hand back a receive that replays it.
+
+    Only POST bodies are read. A GET carries nothing to inspect, and draining
+    one would stall the SSE transport, which holds its request open by design.
+    """
+    if str(scope.get("method") or "").upper() != "POST":
+        return None, receive
+
+    messages: list[Message] = []
+    body = b""
+    while True:
+        message = await receive()
+        messages.append(message)
+        if message["type"] != "http.request":
+            break
+        body += message.get("body", b"")
+        if not message.get("more_body", False):
+            break
+
+    async def replay() -> Message:
+        if messages:
+            return messages.pop(0)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return body, replay
+
+
 class AdminKeyAuthMiddleware:
     def __init__(
         self,
@@ -70,6 +103,7 @@ class AdminKeyAuthMiddleware:
         public_prefixes: tuple[str, ...] = (),
         token_verifier: TokenVerifier | None = None,
         resource_metadata_url: str | None = None,
+        scoped_keys: list[ScopedKey] | None = None,
     ) -> None:
         self.app = app
         self._admin_key = admin_key.encode()
@@ -78,31 +112,55 @@ class AdminKeyAuthMiddleware:
         self._public_prefixes = public_prefixes
         self._token_verifier = token_verifier
         self._resource_metadata_url = resource_metadata_url
+        self._scoped_keys = scoped_keys or []
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or self._is_public(str(scope.get("path") or "")):
+        path = str(scope.get("path") or "")
+        if scope["type"] != "http" or self._is_public(path):
             await self.app(scope, receive, send)
             return
 
         headers = dict(scope.get("headers") or [])
-        if self._is_authorized(headers) or await self._authorize_token(scope, headers):
-            await self.app(scope, receive, send)
+        key_scope = self._resolve_scope(headers)
+
+        # An OAuth token is issued only to whoever proved they hold the owner
+        # secret, so it carries the owner's reach.
+        if key_scope is None and await self._authorize_token(scope, headers):
+            key_scope = AdminScope()
+
+        if key_scope is None:
+            response = JSONResponse(
+                {"error": "unauthorized"}, status_code=401, headers=self._challenge_headers()
+            )
+            await response(scope, receive, send)
             return
 
-        response = JSONResponse(
-            {"error": "unauthorized"}, status_code=401, headers=self._challenge_headers()
-        )
-        await response(scope, receive, send)
+        if not key_scope.is_admin:
+            # What a scoped key is allowed to do depends on the tool and
+            # project named in the body, so the body has to be read here and
+            # replayed to the application afterwards. Every MCP call is a POST
+            # to one path; a path-only check cannot tell them apart.
+            body, receive = await _buffered_receive(scope, receive)
+            denial = authorize_request(key_scope, path, body)
+            if denial is not None:
+                logger.warning("Refused a scoped key: %s", denial)
+                response = JSONResponse(
+                    {"error": "forbidden", "detail": denial}, status_code=403
+                )
+                await response(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
 
     def _is_public(self, path: str) -> bool:
         return path in self._public_paths or path.startswith(self._public_prefixes)
 
-    def _is_authorized(self, headers: dict[bytes, bytes]) -> bool:
+    def _resolve_scope(self, headers: dict[bytes, bytes]) -> AdminScope | ScopedKey | None:
         provided = headers.get(self._header_name)
         if provided is None:
             provided = self._bearer_token(headers)
 
-        return provided is not None and hmac.compare_digest(provided, self._admin_key)
+        return resolve_scope(provided, self._admin_key.decode(), self._scoped_keys)
 
     @staticmethod
     def _bearer_token(headers: dict[bytes, bytes]) -> bytes | None:
@@ -443,6 +501,7 @@ if settings.auth.enabled:
             admin_key=settings.auth.admin_key,
             header_name=settings.auth.header_name,
             public_paths=(_PUBLIC_PATHS | PUBLIC_OAUTH_PATHS) if _oauth_routes else _PUBLIC_PATHS,
+            scoped_keys=settings.auth.scoped_key_list,
             public_prefixes=PUBLIC_OAUTH_PREFIXES if _oauth_routes else (),
             token_verifier=_token_verifier,
             resource_metadata_url=_resource_metadata_url,
