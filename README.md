@@ -182,6 +182,7 @@ issuer must be HTTPS or OAuth stays off and only the admin key works.
 | [Memory Hygiene](docs/memory-hygiene.md) | Staleness flags, type-aware TTL decay, background consolidation |
 | [Alternative Detection](docs/alternatives.md) | Auto-detecting memories that serve the same purpose |
 | [Efficiency Improvements](docs/efficiency-improvements.md) | Batch store, direct get, parallel retrieval |
+| [Provisioning the CX tenant](docs/cx-tenant.md) | Paste-ready scoped key and retention policy for the Customer Experience service |
 
 ---
 
