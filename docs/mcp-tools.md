@@ -80,10 +80,16 @@ Retrieve relevant context items for the current query from all memory layers.
 | `top_k` | integer | no | Max items to return (default: 10) |
 | `memory_layers` | array | no | Which memory layers to query (default: all) |
 | `expand_relations` | boolean | no | Also include memories linked to the retrieved items via relations (1-hop, marked with via_relation). Default: false |
+| `filters` | object | no | Metadata equality filters pushed down to the vector store's payload filter, e.g. `{"locale": "en", "source_id": "help-42"}`. Applied before `top_k`, not after, so a filtered search still returns up to `top_k` items. |
+
+Each returned item carries a `citation` object — `sourceId`, `url`, `title`,
+`offsets {start, end}` — with every key present and `null` when unknown, so an
+answer can attribute the passage it used.
 
 ### `context_summarize`
 
-Summarize the working memory for a session. Runs async, off the critical path.
+Summarize the working memory for a session. Runs async and off the critical
+path by default; pass `sync: true` to get the summary back in the same call.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -91,6 +97,11 @@ Summarize the working memory for a session. Runs async, off the critical path.
 | `user_id` | string | yes | User identifier |
 | `max_tokens` | integer | no | Max summary length in tokens (default: 500) |
 | `focus` | string | no | What to focus on in the summary (optional) |
+| `sync` | boolean | no | Wait for the summary and return `{summary, keyEntities, tokensSaved}` in this call. Default false. |
+
+An agent compacting its own context in the background has nothing to wait for,
+which is why the default schedules the work. A caller assembling a prompt *now*
+needs the summary itself, and a scheduled call hands it nothing.
 
 ### `context_score`
 
@@ -164,6 +175,39 @@ Mark an existing memory item as deprecated. The item is NOT deleted — it stays
 | `superseded_by` | string | no | ID of the newer item that replaces this one — records a 'supersedes' relation (new item → deprecated item) so replacement history is traceable (optional) |
 | `project` | string | no | Project slug to operate in — overrides the active-project pointer for this call. Pass it in multi-session setups so concurrent sessions in different projects don't route into each other's collections (optional) |
 
+### `context_deprecate_source`
+
+Deprecate every live item ingested under one source id, and report how many.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source_id` | string | yes | The source id whose items to retire |
+| `user_id` | string | yes | User identifier |
+| `project` | string | no | Project slug to operate in — overrides the active-project pointer (optional) |
+| `reason` | string | no | Why the source is being retired (optional) |
+
+This is how a document is retired or replaced. A caller never learns the item
+ids its document became, so addressing them one by one is not possible. Items
+are deprecated, not deleted, so history and supersedes chains stay readable. A
+source that is already gone returns `0` — a successful no-op, not an error,
+which is what a sync retrying after a timeout needs to see.
+
+### `context_erase_user`
+
+Hard-delete every item belonging to a user id, across every collection.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `target_user_id` | string | yes | The user id to erase |
+| `user_id` | string | yes | User identifier of the caller |
+
+For erasure requests, where deprecation is not an answer. Sweeps project
+collections, the shared L4 collection, and per-project code indexes, because a
+user id can appear in any of them and an erasure that misses one is not an
+erasure. **This cannot be undone.** The target is a separate argument from
+`user_id` on purpose: erasing someone must be deliberate, never a defaulted
+value. Covers the vector store; rows outside it are not touched.
+
 ### `context_list`
 
 List memory items without a vector search — for browsing checkpoints, reviewing what's stored, or finding items to deprecate.
@@ -179,12 +223,20 @@ List memory items without a vector search — for browsing checkpoints, reviewin
 
 ### `context_ingest`
 
-Parse and ingest any file or URL into memory as chunks. Supports .docx, .pdf, .md, source code files (.py, .js, .ts, .go, .rs, ...), and any http(s):// URL. Each chunk is embedded and stored automatically.
+Parse and ingest a file, a URL, or caller-held text into memory as chunks.
+Supports .docx, .pdf, .md, source code files (.py, .js, .ts, .go, .rs, ...), any
+http(s):// URL, or raw text in `text`. Each chunk is embedded and stored
+automatically.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `source` | string | yes | Absolute file path or URL to ingest |
+| `source` | string | no | Absolute file path or URL to ingest. Exactly one of `source` or `text`. |
+| `text` | string | no | Content the caller already holds, ingested directly instead of being fetched. Exactly one of `source` or `text`. |
 | `user_id` | string | yes | User identifier |
+| `source_id` | string | no | The caller's own identifier for this document, stored on every chunk. A source id *is* the document identity — there is no separate document entity — so it is what `context_deprecate_source` retires and what a re-sync replaces. |
+| `url` | string | no | Citation URL recorded on every chunk, for text fetched elsewhere |
+| `title` | string | no | Document title recorded on every chunk, used when citing it |
+| `locale` | string | no | Document locale (e.g. `en`), recorded on every chunk and filterable at retrieval |
 | `memory_layer` | `L1` \| `L2` \| `L3` \| `L4` | no | Memory layer to store chunks in (default: L3) |
 | `importance` | number | no | Importance score 0.0-1.0 (default: 0.8) |
 | `project` | string | no | Project name tag for filtering (optional) |

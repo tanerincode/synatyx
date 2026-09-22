@@ -49,7 +49,8 @@ class FakeSynatyx:
 
     async def summarize_session(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("summarize_session", kwargs))
-        return {"summary": "they asked about billing", "key_entities": [], "tokens_saved": 120}
+        # The shape summarize_session actually returns — one shape, both transports.
+        return {"summary": "they asked about billing", "keyEntities": [], "tokensSaved": 120}
 
     async def erase_user(self, user_id: str) -> dict[str, Any]:
         self.calls.append(("erase_user", {"user_id": user_id}))
@@ -449,3 +450,24 @@ def test_an_unhandled_exception_still_answers_in_an_envelope():
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+
+
+def test_retrieve_pushes_filters_down_as_stored_metadata_keys():
+    fake = FakeSynatyx()
+    client(fake).post(
+        "/v1/retrieve",
+        json={"project": "cx-a", "query": "q", "filters": {"locale": "en", "sourceId": "help-42"}},
+    )
+
+    # sourceId is what the API speaks; source_id is what the payload stores.
+    # Without the rename the filter matches nothing and the caller just sees
+    # an empty result.
+    assert fake.calls[0][1]["filters"] == {"locale": "en", "source_id": "help-42"}
+
+
+def test_retrieve_rejects_non_object_filters():
+    response = client(FakeSynatyx()).post(
+        "/v1/retrieve", json={"project": "cx-a", "query": "q", "filters": "locale=en"}
+    )
+
+    assert response.status_code == 400

@@ -109,6 +109,7 @@ class RetrieveService:
         memory_layers: list[MemoryLayer] | None = None,
         use_mmr: bool = True,
         query_embedding: list[float] | None = None,
+        metadata_filters: dict[str, Any] | None = None,
     ) -> RetrieveResult:
         """
         Hybrid retrieval: dense kNN + BM25 score fusion + MMR diversification.
@@ -146,6 +147,7 @@ class RetrieveService:
                 memory_layer=layer,
                 session_id=session_id,
                 project=project,
+                metadata_filters=metadata_filters,
             )
             for layer in vector_layers
         ))

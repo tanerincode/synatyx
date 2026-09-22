@@ -272,8 +272,8 @@ class SynatyxMCPServer:
         self,
         user_id: str,
         project: str,
-        source_id: str,
-        url: str | None = None,
+        source_id: str | None = None,
+        source: str | None = None,
         text: str | None = None,
         metadata: dict[str, Any] | None = None,
         memory_layer: str = "L3",
@@ -285,15 +285,17 @@ class SynatyxMCPServer:
         re-synced or retired later as a unit."""
         from src.models.memory_layer import MemoryLayer as ML
 
-        if (url is None) == (text is None):
-            raise ValueError("exactly one of url or text is required")
+        if (source is None) == (text is None):
+            raise ValueError("exactly one of source (path or URL) or text is required")
 
         _, _, _, ingest, _ = await self._get_services(user_id, project)
-        meta: dict[str, Any] = {**(metadata or {}), "source_id": source_id}
+        meta: dict[str, Any] = dict(metadata or {})
+        if source_id:
+            meta["source_id"] = source_id
 
-        if url is not None:
+        if source is not None:
             result = await ingest.ingest(
-                source=url,
+                source=source,
                 user_id=user_id,
                 memory_layer=ML(memory_layer),
                 importance=importance,
@@ -310,7 +312,11 @@ class SynatyxMCPServer:
             result = await ingest.ingest_text(
                 text=text or "",
                 user_id=user_id,
-                source=meta_url if isinstance(meta_url, str) and meta_url.strip() else source_id,
+                source=(
+                    meta_url
+                    if isinstance(meta_url, str) and meta_url.strip()
+                    else (source_id or "inline-text")
+                ),
                 memory_layer=ML(memory_layer),
                 importance=importance,
                 project=project,
@@ -321,6 +327,7 @@ class SynatyxMCPServer:
         return {
             "source_id": source_id,
             "source": result.source,
+            "chunk_count": result.chunks_stored,
             "chunks_stored": result.chunks_stored,
             "chunks_failed": result.chunks_failed,
             "total_chunks": result.total_chunks,
@@ -365,11 +372,11 @@ class SynatyxMCPServer:
         )
         return {
             "summary": result.summary,
-            "key_entities": [
+            "keyEntities": [
                 entity.model_dump() if hasattr(entity, "model_dump") else entity
                 for entity in result.key_entities
             ],
-            "tokens_saved": result.tokens_saved,
+            "tokensSaved": result.tokens_saved,
         }
 
     async def erase_user(self, user_id: str) -> dict[str, Any]:
@@ -666,6 +673,11 @@ class SynatyxMCPServer:
             combined_items = []
             suggested_budget: dict = {}
 
+            # Filters go down into the Qdrant payload filter rather than
+            # trimming the result set afterwards, which would quietly return
+            # fewer than top_k.
+            filters = args.get("filters") or {}
+
             if project_layers:
                 proj_result = await retrieve.retrieve(
                     query=args["query"],
@@ -674,6 +686,7 @@ class SynatyxMCPServer:
                     project=args.get("project"),
                     top_k=top_k,
                     memory_layers=project_layers,
+                    metadata_filters=filters or None,
                 )
                 combined_items.extend(proj_result.context_items)
                 suggested_budget = proj_result.suggested_budget
@@ -694,8 +707,11 @@ class SynatyxMCPServer:
             final_items = combined_items[:top_k]
             total_tokens = sum(i.token_estimate for i in final_items)
 
+            from src.core.citations import annotate as annotate_citation
             from src.core.staleness import annotate_staleness
-            dumped_items = [annotate_staleness(i.model_dump()) for i in final_items]
+            dumped_items = [
+                annotate_citation(annotate_staleness(i.model_dump())) for i in final_items
+            ]
 
             # Optional 1-hop relation expansion — pull in linked memories
             if args.get("expand_relations") and final_items:
@@ -805,6 +821,20 @@ class SynatyxMCPServer:
 
         elif name == "context_summarize":
             summarize = SummarizeService(self._redis, self._postgres, store=store)
+            # An agent compacting its own context in the background has nothing
+            # to wait for; a caller assembling a prompt in this turn needs the
+            # summary itself, and scheduling it would hand back nothing usable.
+            if args.get("sync"):
+                return {
+                    **await self.summarize_session(
+                        user_id=user_id,
+                        project=args.get("project") or "",
+                        session_id=args["session_id"],
+                        max_tokens=args.get("max_tokens", 500),
+                        focus=args.get("focus"),
+                    ),
+                    **_warn,
+                }
             await summarize.summarize_async(
                 session_id=args["session_id"],
                 user_id=user_id,
@@ -812,6 +842,20 @@ class SynatyxMCPServer:
                 focus=args.get("focus"),
             )
             return {"status": "summarization_scheduled", **_warn}
+
+        elif name == "context_deprecate_source":
+            return {
+                **await self.deprecate_source(
+                    user_id=user_id,
+                    project=args.get("project") or "",
+                    source_id=args["source_id"],
+                    reason=args.get("reason"),
+                ),
+                **_warn,
+            }
+
+        elif name == "context_erase_user":
+            return {**await self.erase_user(args["target_user_id"]), **_warn}
 
         elif name == "context_score":
             from src.models.context import ContextItem
@@ -823,23 +867,24 @@ class SynatyxMCPServer:
             }
 
         elif name == "context_ingest":
-            from src.models.memory_layer import MemoryLayer as ML
-            layer_str = args.get("memory_layer", "L3")
-            result = await ingest.ingest(
-                source=args["source"],
+            # Delegates to the same method the REST transport calls, so the
+            # two cannot drift into ingesting differently.
+            ingested = await self.ingest_source(
                 user_id=user_id,
-                memory_layer=ML(layer_str),
+                project=args.get("project") or "",
+                source_id=args.get("source_id"),
+                source=args.get("source"),
+                text=args.get("text"),
+                metadata={
+                    key: args[key]
+                    for key in ("url", "title", "locale")
+                    if args.get(key) is not None
+                },
+                memory_layer=args.get("memory_layer", "L3"),
                 importance=float(args.get("importance", 0.8)),
-                project=args.get("project"),
                 session_id=args.get("session_id"),
             )
-            return {
-                "source": result.source,
-                "chunks_stored": result.chunks_stored,
-                "chunks_failed": result.chunks_failed,
-                "total_chunks": result.total_chunks,
-                **_warn,
-            }
+            return {**ingested, **_warn}
 
         elif name == "context_checkpoint":
             item_ids, embedded = await store.checkpoint(

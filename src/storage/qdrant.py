@@ -247,8 +247,16 @@ class QdrantStorage:
         project: str | None = None,
         type_filter: str | None = None,
         pinned_only: bool = False,
+        metadata_filters: dict[str, Any] | None = None,
     ) -> list[ScoredContextItem]:
-        """Similarity search filtered by user_id and optionally memory_layer or session_id."""
+        """Similarity search filtered by user_id and optionally memory_layer or session_id.
+
+        `metadata_filters` match the point's nested metadata object —
+        {"locale": "en"} becomes a condition on `metadata.locale`. They are
+        pushed into the Qdrant filter rather than applied to the results,
+        because filtering afterwards silently shrinks the answer: a top-k of 8
+        that returns 8 hits and then drops 6 for the wrong locale leaves 2.
+        """
         conditions: list[Any] = [
             FieldCondition(key="user_id", match=MatchValue(value=user_id)),
             FieldCondition(key="is_deprecated", match=MatchValue(value=False)),
@@ -272,6 +280,10 @@ class QdrantStorage:
         if type_filter:
             conditions.append(
                 FieldCondition(key="type", match=MatchValue(value=type_filter))
+            )
+        for key, value in (metadata_filters or {}).items():
+            conditions.append(
+                FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value))
             )
 
         results = await self._client.query_points(

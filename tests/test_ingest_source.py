@@ -36,13 +36,13 @@ def _server(ingest: RecordingIngest) -> SynatyxMCPServer:
     return server
 
 
-async def test_url_ingest_tags_every_chunk_with_the_source_id():
+async def test_source_ingest_tags_every_chunk_with_the_source_id():
     ingest = RecordingIngest()
     result = await _server(ingest).ingest_source(
         user_id="cx-service",
         project="cx-lens-ai",
         source_id="help-42",
-        url="https://help.example.com/cancel",
+        source="https://help.example.com/cancel",
         metadata={"title": "Cancelling"},
     )
 
@@ -80,7 +80,7 @@ async def test_pushed_text_prefers_a_url_from_the_metadata():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"url": "https://x.test", "text": "hi"},
+        {"source": "https://x.test", "text": "hi"},
         {},
     ],
 )

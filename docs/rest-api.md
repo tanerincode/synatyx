@@ -93,6 +93,11 @@ identity, one source id per document.
 
 `topK` defaults to 8. Results come back sorted by score, already capped.
 
+`filters` narrows by stored metadata — `{"locale": "en", "sourceId": "help-42"}` —
+and is pushed into the vector store's payload filter rather than applied to the
+results, so a filtered search still returns up to `topK` items instead of
+whatever survived trimming.
+
 ```json
 {
   "chunks": [

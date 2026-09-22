@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from src.config import settings
+from src.core import citations
 
 logger = logging.getLogger(__name__)
 
@@ -133,43 +134,37 @@ def _user_id(body: dict[str, Any]) -> str:
     return _text(body, "userId", "user_id") or settings.default_user_id
 
 
-def _citation_url(metadata: dict[str, Any]) -> str | None:
-    """A URL a caller can actually link to, or nothing.
-
-    `source` holds a URL for crawled documents and a file path or a caller's
-    own identifier for everything else. Returning a path as a citation link
-    produces a dead link in someone's UI, so only real URLs come back.
-    """
-    for key in ("url", "source"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.startswith(("http://", "https://")):
-            return value
-    return None
-
-
 def _to_chunk(item: dict[str, Any]) -> dict[str, Any]:
     """One retrieved item as a citable chunk.
 
-    Citation fields come back as explicit nulls rather than absent keys: a
-    caller rendering citations needs to distinguish "no title" from "this
-    server does not send titles", and only one of those is worth a bug report.
+    Built from the shared citation helpers, so a chunk carries the same
+    identity here as it does in an MCP tool result. Citation fields are
+    explicit nulls rather than absent keys.
     """
-    metadata = item.get("metadata") or {}
-    start = metadata.get("offset_start")
-    end = metadata.get("offset_end")
-
+    fields = citations.citation(item.get("metadata") or {})
     return {
         "chunkId": item.get("id"),
-        "sourceId": metadata.get("source_id"),
+        "sourceId": fields["sourceId"],
         "text": item.get("content", ""),
         "score": item.get("score"),
-        "url": _citation_url(metadata),
-        "title": metadata.get("title") or metadata.get("section"),
-        "offsets": (
-            {"start": start, "end": end}
-            if isinstance(start, int) and isinstance(end, int)
-            else None
-        ),
+        "url": fields["url"],
+        "title": fields["title"],
+        "offsets": fields["offsets"],
+    }
+
+
+def _metadata_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    """Caller filters as stored metadata keys.
+
+    The API speaks camelCase and the payload is written in snake_case, so
+    `sourceId` has to become `source_id` here or the filter matches nothing and
+    the caller sees an empty result with no explanation.
+    """
+    aliases = {"sourceId": "source_id", "documentId": "source_id"}
+    return {
+        aliases.get(key, key): value
+        for key, value in filters.items()
+        if value is not None
     }
 
 
@@ -249,7 +244,7 @@ async def ingest(request: Request) -> JSONResponse:
             user_id=_user_id(body),
             project=values["project"],
             source_id=values["sourceId"],
-            url=url,
+            source=url,
             text=text,
             metadata=metadata,
             session_id=_text(body, "sessionId", "session_id") or None,
@@ -286,12 +281,17 @@ async def retrieve(request: Request) -> JSONResponse:
     if top_k < 1:
         return error(INVALID_REQUEST, "topK must be at least 1", 400)
 
+    filters = _field(body, "filters", default={})
+    if not isinstance(filters, dict):
+        return error(INVALID_REQUEST, "filters must be an object", 400)
+
     result = await synatyx.run_tool("context_retrieve", {
         "query": values["query"],
         "user_id": _user_id(body),
         "project": values["project"],
         "top_k": top_k,
         "memory_layers": ["L3"],
+        "filters": _metadata_filters(filters),
     })
     failure = _tool_failed(result)
     if failure is not None:
@@ -449,11 +449,7 @@ async def memory_summarize(request: Request) -> JSONResponse:
 
     # An empty summary means there was nothing in the window to summarize —
     # a normal answer for a conversation that has just started.
-    return JSONResponse({
-        "summary": result["summary"],
-        "keyEntities": result["key_entities"],
-        "tokensSaved": result["tokens_saved"],
-    })
+    return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------

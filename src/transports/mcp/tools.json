@@ -70,7 +70,7 @@
   },
   {
     "name": "context_retrieve",
-    "description": "Retrieve relevant context items for the current query from all memory layers.",
+    "description": "Retrieve relevant context items for the current query from all memory layers. Each item carries a `citation` object (sourceId, url, title, offsets) so an answer can attribute it.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -110,6 +110,10 @@
         "expand_relations": {
           "type": "boolean",
           "description": "Also include memories linked to the retrieved items via relations (1-hop, marked with via_relation). Default: false"
+        },
+        "filters": {
+          "type": "object",
+          "description": "Metadata equality filters pushed down to the vector store's payload filter, e.g. {\"locale\": \"en\", \"source_id\": \"help-42\"}. Applied before top_k, not after, so a filtered search still returns up to top_k items rather than whatever survives trimming."
         }
       },
       "required": [
@@ -227,7 +231,7 @@
   },
   {
     "name": "context_summarize",
-    "description": "Summarize the working memory for a session. Runs async, off the critical path.",
+    "description": "Summarize the working memory for a session. Runs async and off the critical path by default; pass sync: true to get the summary back in the same call.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -246,6 +250,10 @@
         "focus": {
           "type": "string",
           "description": "What to focus on in the summary (optional)"
+        },
+        "sync": {
+          "type": "boolean",
+          "description": "Wait for the summary and return it in this call as {summary, keyEntities, tokensSaved}. Default false, which schedules the work and returns immediately — right for background compaction, useless when the summary is needed now."
         }
       },
       "required": [
@@ -563,13 +571,13 @@
   },
   {
     "name": "context_ingest",
-    "description": "Parse and ingest any file or URL into memory as chunks. Supports .docx, .pdf, .md, source code files (.py, .js, .ts, .go, .rs, ...), and any http(s):// URL. Each chunk is embedded and stored automatically.",
+    "description": "Parse and ingest a file, a URL, or caller-held text into memory as chunks. Supports .docx, .pdf, .md, source code files (.py, .js, .ts, .go, .rs, ...), any http(s):// URL, or raw text passed in `text` when the caller already holds the content. Pass `source_id` to make the document addressable later: re-ingesting or retiring it with context_deprecate_source works on that id. Each chunk is embedded and stored automatically.",
     "parameters": {
       "type": "object",
       "properties": {
         "source": {
           "type": "string",
-          "description": "Absolute file path or URL to ingest"
+          "description": "Absolute file path or URL to ingest. Provide exactly one of source or text."
         },
         "user_id": {
           "type": "string",
@@ -596,10 +604,29 @@
         "session_id": {
           "type": "string",
           "description": "Project namespace. Always set this to the project name (e.g. 'taty-v2') so ingested chunks are scoped to that project and retrievable in isolation without cross-project contamination."
+        },
+        "text": {
+          "type": "string",
+          "description": "Content the caller already holds, ingested directly instead of being fetched. Provide exactly one of source or text."
+        },
+        "source_id": {
+          "type": "string",
+          "description": "The caller's own identifier for this document, stored on every chunk. A source id is the document's identity — there is no separate document entity — so it is what context_deprecate_source retires and what a re-sync replaces (optional)."
+        },
+        "url": {
+          "type": "string",
+          "description": "Citation URL recorded on every chunk, for text that was fetched elsewhere (optional)."
+        },
+        "title": {
+          "type": "string",
+          "description": "Document title recorded on every chunk, used when citing it (optional)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "Document locale (e.g. 'en'), recorded on every chunk and filterable at retrieval (optional)."
         }
       },
       "required": [
-        "source",
         "user_id"
       ]
     }
@@ -1104,11 +1131,65 @@
         },
         "group_by": {
           "type": "string",
-          "enum": ["tool", "project", "day"],
+          "enum": [
+            "tool",
+            "project",
+            "day"
+          ],
           "description": "Breakdown dimension (default: tool)"
         }
       },
       "required": [
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_deprecate_source",
+    "description": "Deprecate every live item ingested under one source id, and report how many. This is how a document is retired or replaced: a caller never learns the item ids its document became, so addressing them one by one is not possible. Items are deprecated, not deleted, so history and supersedes chains stay readable. A source that is already gone returns 0 — a successful no-op, not an error.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "description": "The source id whose items to retire"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier"
+        },
+        "project": {
+          "type": "string",
+          "description": "Project slug to operate in — overrides the active-project pointer for this call (optional)"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the source is being retired (optional)"
+        }
+      },
+      "required": [
+        "source_id",
+        "user_id"
+      ]
+    }
+  },
+  {
+    "name": "context_erase_user",
+    "description": "Hard-delete every item belonging to a user id, across every collection — project collections, the shared L4 collection, and per-project code indexes. For erasure requests, where deprecation is not an answer. This cannot be undone. Covers the vector store; rows outside it are not touched.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "target_user_id": {
+          "type": "string",
+          "description": "The user id to erase. Named distinctly from user_id so erasing someone is always deliberate, never a defaulted argument."
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier of the caller"
+        }
+      },
+      "required": [
+        "target_user_id",
         "user_id"
       ]
     }
