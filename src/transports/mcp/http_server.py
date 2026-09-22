@@ -45,6 +45,7 @@ from src.transports.mcp.oauth import (
     resource_metadata_url,
 )
 from src.transports.mcp.server import SynatyxMCPServer
+from src.transports.rest.v1 import routes as v1_routes
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +453,7 @@ else:
     logger.warning("AUTH_ADMIN_KEY not set — MCP HTTP server is UNAUTHENTICATED")
 
 app = Starlette(
-    routes=_streamable_app.routes + _sse_app.routes + _oauth_routes + [
+    routes=_streamable_app.routes + _sse_app.routes + _oauth_routes + v1_routes + [
         Route("/health", health),
         Route("/capture", capture, methods=["POST"]),
         Route("/index/diff", index_diff, methods=["POST"]),
