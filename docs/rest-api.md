@@ -114,6 +114,10 @@ whatever survived trimming.
 }
 ```
 
+`offsets` is best-effort: populated for text ingested through `text`, `null`
+for a chunk from a parsed file or a crawled URL until the parsers carry offsets
+through.
+
 `url`, `title` and `offsets` are always present and are `null` when unknown,
 rather than omitted — a caller rendering citations needs to tell "no title"
 apart from "this server does not send titles". `url` is only ever a real URL; a

@@ -86,6 +86,11 @@ Each returned item carries a `citation` object — `sourceId`, `url`, `title`,
 `offsets {start, end}` — with every key present and `null` when unknown, so an
 answer can attribute the passage it used.
 
+`offsets` is best-effort. It is populated for text ingested through `text`,
+where the chunker knows the positions it cut at. A chunk from a parsed file or
+a crawled URL reports `null` until the parsers carry offsets through, so a
+caller should handle `null` rather than assume a position is always available.
+
 ### `context_summarize`
 
 Summarize the working memory for a session. Runs async and off the critical
