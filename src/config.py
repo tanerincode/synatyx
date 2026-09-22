@@ -1,8 +1,12 @@
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from src.core.retention import RetentionPolicy
 
 # Always resolve .env relative to the project root regardless of cwd
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -140,6 +144,19 @@ class GCSettings(BaseSettings):
             "preference": 3.0,
         }
     )
+    # Retention commitments per project prefix, as JSON:
+    #   [{"prefix": "cx-", "layers": {"L1": 90, "L2": 90, "L3": "keep"}}]
+    # A number is a hard ceiling in days measured from creation; "keep" means
+    # age never expires that layer. Unlike the TTLs above these are promises
+    # rather than heuristics, so nothing stretches them — see src/core/retention.py.
+    retention_policies: str = ""
+
+    @property
+    def retention_policy_list(self) -> "list[RetentionPolicy]":
+        """Parsed retention policies, longest prefix first."""
+        from src.core.retention import parse_retention_policies
+
+        return parse_retention_policies(self.retention_policies)
 
     model_config = SettingsConfigDict(env_prefix="GC_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from src.config import GCSettings
+from src.core.retention import KEEP_FOREVER, policy_for
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
@@ -27,6 +28,7 @@ class GarbageCollector:
         self._qdrant = qdrant
         self._postgres = postgres
         self._settings = settings
+        self._retention = settings.retention_policy_list
 
     # ── Public ───────────────────────────────────────────────────────────────
 
@@ -146,6 +148,23 @@ class GarbageCollector:
     ) -> str:
         item_id = item["_id"]
 
+        # Retention is checked before anything else, and overrides every
+        # exemption below it. A promise that data is gone after 90 days cannot
+        # make an exception for the records someone pinned or scored as
+        # important — those are exactly the ones a person asking about their
+        # data would care about.
+        retention = self._retention_verdict(item, now)
+        if retention is not None:
+            if retention == "keep":
+                return "skipped"
+            await qdrant.deprecate(item_id, reason="retention policy")
+            await self._postgres.gc_log_add(
+                run_id=run_id, item_id=item_id, collection=collection,
+                memory_layer=item.get("memory_layer", "unknown"),
+                action="deprecated", reason=retention,
+            )
+            return "deprecated"
+
         if self._is_immune(item):
             return "skipped"
 
@@ -174,6 +193,38 @@ class GarbageCollector:
             reason=f"not accessed for {int(effective_ttl)} days",
         )
         return "deprecated"
+
+    def _retention_verdict(self, item: dict[str, Any], now: datetime) -> str | None:
+        """"keep", a reason to expire now, or None when no policy applies.
+
+        Age is measured from creation, never from last access: a conversation
+        that someone re-reads on day 89 is not thereby allowed to outlive the
+        retention window.
+        """
+        policy = policy_for(self._retention, item.get("project"))
+        if policy is None:
+            return None
+
+        limit = policy.days_for(str(item.get("memory_layer") or ""))
+        if limit is None:
+            return None
+        if limit == KEEP_FOREVER:
+            return "keep"
+
+        created_raw = item.get("created_at")
+        if not created_raw:
+            # Undatable under a retention policy: expire it rather than keep
+            # something whose age cannot be shown to be within the promise.
+            return "retention policy (no creation date)"
+
+        created = datetime.fromisoformat(created_raw)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+
+        days = float(limit)
+        if (now - created) < timedelta(days=days):
+            return "keep"
+        return f"retention policy: older than {int(days)} days"
 
     def effective_ttl(self, base_ttl: float, item: dict[str, Any]) -> float:
         """TTL after importance scaling and type-aware decay.

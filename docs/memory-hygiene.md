@@ -72,3 +72,48 @@ Humans don't keep every episodic trace; sleep merges them into semantic knowledg
 - **On demand:** the `context_consolidate` MCP tool runs one pass over the active project's collection — useful for stdio-only setups without the daemon.
 
 `CONSOLIDATION_MAX_MERGES_PER_RUN` (default 20) caps each pass as a safety valve; a failed cluster merge is logged and skipped, never fatal.
+
+## Retention policies — a ceiling, not a heuristic
+
+Everything above is about forgetting what nobody uses. A retention policy is a
+different promise: that a tenant's data will be *gone* by a certain date.
+
+The distinction matters because the two pull in opposite directions. A TTL
+measures idleness and stretches for important or pinned items, because keeping
+a useful memory longer is a feature. A retention commitment measures age and
+stretches for nothing — a promise that quietly exempts whatever someone marked
+important is not a promise.
+
+Configure per project prefix with `GC_RETENTION_POLICIES`:
+
+```bash
+GC_RETENTION_POLICIES='[
+  {"prefix": "cx-", "layers": {"L1": 90, "L2": 90, "L3": "keep"}}
+]'
+```
+
+A number is days from creation. `"keep"` means age never expires that layer —
+it goes only by explicit deprecation. A layer the policy does not mention, and
+a project no prefix matches, keep the ordinary TTL behaviour unchanged.
+
+When a policy applies, it is checked first and overrides every exemption the
+collector otherwise honours:
+
+| | Ordinary TTL | Retention policy |
+|---|---|---|
+| Measured from | last access, else creation | creation, always |
+| Importance scaling | yes | no |
+| `fact_type` multipliers | yes | no |
+| Pinned items | exempt | **not exempt** |
+| `importance >= 1.0` | exempt | **not exempt** |
+
+An item under a policy with no creation date is expired rather than kept: its
+age cannot be shown to be inside the promise, and "we could not tell" is not an
+answer to give someone asking about their data.
+
+The longest matching prefix wins, so `cx-lens` overrides `cx-` for that tenant.
+
+Expiry deprecates, as the TTL path does; the hard delete follows after
+`GC_GRACE_PERIOD_DAYS`. A retention window of 90 days therefore means data
+leaves retrieval at 90 days and the store at 90 + grace. Set the window with
+that in mind if the commitment is to deletion rather than to inaccessibility.
