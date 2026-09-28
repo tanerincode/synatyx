@@ -635,6 +635,30 @@ class SynatyxMCPServer:
             self._pack_svc_cache.pop(storage.collection_name, None)
             return {**index_result.to_dict(), **_warn}
 
+        elif name in ("context_index_push", "context_index_remove"):
+            from src.core.index import validate_push_files, validate_remove_paths
+
+            # Pushers are services indexing someone else's repo; routing by
+            # the shared active-project pointer would file chunks under
+            # whatever project a human last selected.
+            if not args.get("project"):
+                raise ValueError(f"{name} requires the project argument")
+            index_svc, _ = await self._get_index_services(user_id, args["project"])
+            if name == "context_index_push":
+                files = validate_push_files(args.get("files"))
+                push_result = await index_svc.index_content(
+                    user_id, files, force=bool(args.get("force", False))
+                )
+                result: dict[str, Any] = push_result.to_dict()
+            else:
+                paths = validate_remove_paths(args.get("paths"))
+                result = {
+                    "paths_removed": len(paths),
+                    "chunks_deleted": await index_svc.remove_files(user_id, paths),
+                }
+            self._pack_svc_cache.pop(storage.collection_name, None)
+            return result
+
         elif name == "context_index_search":
             _, index_search = await self._get_index_services(user_id, args.get("project"))
             hits = await index_search.search(

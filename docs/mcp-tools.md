@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-Synatyx exposes **32 MCP tools**. This file is generated from `src/transports/mcp/tools.json` by `scripts/gen_tool_docs.py` — edit the JSON, then regenerate.
+Synatyx exposes **34 MCP tools**. This file is generated from `src/transports/mcp/tools.json` by `scripts/gen_tool_docs.py` — edit the JSON, then regenerate.
 
 ## Context Assembly
 
@@ -137,6 +137,27 @@ Report what's in the project's code/doc index: file and chunk counts, per-langua
 | `user_id` | string | yes | User identifier |
 | `project` | string | no | Project slug (optional) |
 | `check_staleness` | boolean | no | Re-hash indexed files against disk (default: true, capped at 200 files) |
+
+### `context_index_push`
+
+Push file contents into the project's code/doc index (ctx_<slug>__index) — for callers whose repo is not on the Synatyx server's filesystem (CI, a service's own checkout). Idempotent: chunks whose content hash is unchanged are not re-embedded, so re-pushing a file costs only what changed. At most 50 files and 4 MiB of content per call; split larger sets into batches.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project` | string | yes | Project slug (required — pushes never follow the active-project pointer) |
+| `user_id` | string | yes | User identifier; index searches only see chunks pushed under the same user_id |
+| `files` | array | yes | Files to index, each {path, content}; path is repo-relative, content UTF-8 text |
+| `force` | boolean | no | Re-embed files even if their hash is unchanged (default: false) |
+
+### `context_index_remove`
+
+Remove files from the project's code/doc index: every chunk of each given repo-relative path is deleted. Use for files deleted or renamed in the repo since the last push. At most 1000 paths per call.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project` | string | yes | Project slug (required — pushes never follow the active-project pointer) |
+| `user_id` | string | yes | User identifier; index searches only see chunks pushed under the same user_id |
+| `paths` | array | yes | Repo-relative paths to remove |
 
 ## Knowledge
 

@@ -63,6 +63,16 @@ Two mechanisms keep indexes fresh without anyone calling `context_index`. Both
 write only to `ctx_<slug>__index` — memories and code stay separated by
 construction.
 
+### Push from a service — `context_index_push` / `context_index_remove`
+
+A service with its own checkout (CI, the review service's indexer) pushes file
+contents directly: `context_index_push {project, user_id, files: [{path,
+content}], force?}` and `context_index_remove {project, user_id, paths}`, or
+the same over REST as `POST` / `DELETE /v1/projects/{slug}/index`. The caller
+works out what changed (e.g. `git diff --name-status last..head`), so no
+manifest round trip. `project` is required — a push never follows the
+active-project pointer. Limits per call: 50 files and 4 MiB, or 1000 paths.
+
 ### Push indexing — when the code is NOT on the server
 
 The server can't read your laptop, so the client does the walking:

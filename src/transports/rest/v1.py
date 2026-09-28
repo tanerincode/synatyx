@@ -457,6 +457,60 @@ async def memory_summarize(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Code index
+# ---------------------------------------------------------------------------
+
+async def index_push(request: Request) -> JSONResponse:
+    """Push file contents into the project's code index (one batch)."""
+    synatyx, body, err = await _parse(request)
+    if err is not None:
+        return err
+    assert body is not None
+
+    result = await synatyx.run_tool("context_index_push", {
+        "project": request.path_params["slug"],
+        "user_id": _user_id(body),
+        "files": _field(body, "files"),
+        "force": bool(_field(body, "force", default=False)),
+    })
+    failure = _tool_failed(result)
+    if failure is not None:
+        return failure
+
+    return JSONResponse({
+        "filesIndexed": result.get("files_indexed", 0),
+        "filesUnchanged": result.get("files_unchanged", 0),
+        "filesSkipped": result.get("files_skipped", 0),
+        "filesFailed": result.get("files_failed", 0),
+        "chunksUpserted": result.get("chunks_upserted", 0),
+        "chunksDeleted": result.get("chunks_deleted", 0),
+        "details": result.get("details", []),
+    })
+
+
+async def index_remove(request: Request) -> JSONResponse:
+    """Remove paths from the project's code index (one batch)."""
+    synatyx, body, err = await _parse(request)
+    if err is not None:
+        return err
+    assert body is not None
+
+    result = await synatyx.run_tool("context_index_remove", {
+        "project": request.path_params["slug"],
+        "user_id": _user_id(body),
+        "paths": _field(body, "paths"),
+    })
+    failure = _tool_failed(result)
+    if failure is not None:
+        return failure
+
+    return JSONResponse({
+        "pathsRemoved": result.get("paths_removed", 0),
+        "chunksDeleted": result.get("chunks_deleted", 0),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Erasure
 # ---------------------------------------------------------------------------
 
@@ -539,4 +593,6 @@ routes = [
     Route("/v1/memory/retrieve", _enveloped(memory_retrieve), methods=["POST"]),
     Route("/v1/memory/summarize", _enveloped(memory_summarize), methods=["POST"]),
     Route("/v1/users/{user_id}", _enveloped(erase_user), methods=["DELETE"]),
+    Route("/v1/projects/{slug}/index", _enveloped(index_push), methods=["POST"]),
+    Route("/v1/projects/{slug}/index", _enveloped(index_remove), methods=["DELETE"]),
 ]
