@@ -149,6 +149,27 @@ context in the background has nothing to wait for; a service assembling a
 prompt *now* needs the summary in the same call. An empty `summary` means the
 window held nothing to summarize.
 
+## Code index
+
+For a service that keeps a repo's code index current from its own checkout
+(the review service's indexer does this per registered repo). Same tools as
+`context_index_push` / `context_index_remove`; `slug` is the project.
+
+`POST /v1/projects/{slug}/index` — `{ files: [{ path, content }], force?, userId? }`
+→ `{ filesIndexed, filesUnchanged, filesSkipped, filesFailed, chunksUpserted, chunksDeleted, details }`.
+
+`DELETE /v1/projects/{slug}/index` — `{ paths: [...], userId? }`
+→ `{ pathsRemoved, chunksDeleted }`.
+
+One call carries at most 50 files and 4 MiB of content, or 1000 paths; a
+larger batch is a 400 naming the limit, and nothing from it is indexed. Paths
+are repo-relative. Re-pushing an unchanged file re-embeds nothing
+(`chunksUpserted: 0`).
+
+Chunks belong to `userId` (the server default when absent), and
+`context_index_search` only sees chunks of the user it searches as — so a
+service pushes and searches under one id.
+
 ## `DELETE /v1/users/{user_id}`
 
 Hard-deletes that user's items from every collection — project collections, the

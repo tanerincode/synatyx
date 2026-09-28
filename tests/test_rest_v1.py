@@ -449,3 +449,53 @@ def test_an_unhandled_exception_still_answers_in_an_envelope():
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# Code index push / remove
+# ---------------------------------------------------------------------------
+
+def test_index_push_routes_to_the_tool_with_the_slug_from_the_path():
+    fake = FakeSynatyx(tool_result={
+        "files_indexed": 2, "files_unchanged": 1, "files_skipped": 0, "files_failed": 0,
+        "chunks_upserted": 5, "chunks_deleted": 0, "details": [],
+    })
+    files = [{"path": "a.py", "content": "x = 1\n"}]
+    response = client(fake).post(
+        "/v1/projects/repo-a/index",
+        json={"userId": "review-service", "files": files, "force": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["filesIndexed"] == 2
+    assert response.json()["chunksUpserted"] == 5
+    assert fake.calls == [("context_index_push", {
+        "project": "repo-a", "user_id": "review-service", "files": files, "force": True,
+    })]
+
+
+def test_index_remove_is_a_delete_on_the_same_path():
+    fake = FakeSynatyx(tool_result={"paths_removed": 2, "chunks_deleted": 7})
+    response = client(fake).request(
+        "DELETE",
+        "/v1/projects/repo-a/index",
+        json={"user_id": "review-service", "paths": ["a.py", "b.py"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"pathsRemoved": 2, "chunksDeleted": 7}
+    assert fake.calls == [("context_index_remove", {
+        "project": "repo-a", "user_id": "review-service", "paths": ["a.py", "b.py"],
+    })]
+
+
+def test_an_oversized_index_batch_is_a_400():
+    fake = FakeSynatyx(tool_result={
+        "error": "too many files in one push: 51 > 50; split into batches",
+        "tool": "context_index_push",
+        "error_type": "ValueError",
+    })
+    response = client(fake).post("/v1/projects/repo-a/index", json={"files": []})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"

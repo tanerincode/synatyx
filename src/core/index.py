@@ -47,6 +47,61 @@ DEFAULT_EXCLUDES = {
 }
 EXCLUDED_FILES = {"uv.lock", "package-lock.json", "yarn.lock", "poetry.lock"}
 
+# Limits on one push/remove call (context_index_push / context_index_remove and
+# their REST routes). A pusher splits larger sets into batches; the byte cap
+# keeps one request well under the reverse proxy's body limit.
+PUSH_MAX_FILES = 50
+PUSH_MAX_BYTES = 4 * 1024 * 1024
+REMOVE_MAX_PATHS = 1000
+
+
+def validate_push_files(files: Any) -> list[dict[str, str]]:
+    """Check a push batch and return it as [{path, content}].
+
+    Raises ValueError naming what is wrong, so a transport can answer 400
+    rather than index half a batch."""
+    if not isinstance(files, list) or not files:
+        raise ValueError("files must be a non-empty list of {path, content}")
+    if len(files) > PUSH_MAX_FILES:
+        raise ValueError(
+            f"too many files in one push: {len(files)} > {PUSH_MAX_FILES}; split into batches"
+        )
+    out: list[dict[str, str]] = []
+    total = 0
+    for i, f in enumerate(files):
+        if not isinstance(f, dict):
+            raise ValueError(f"files[{i}] must be an object with path and content")
+        path, content = f.get("path"), f.get("content")
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError(f"files[{i}].path must be a non-empty string")
+        if not isinstance(content, str):
+            raise ValueError(f"files[{i}].content must be a string")
+        if ".." in Path(path).parts:
+            raise ValueError(f"files[{i}].path must not contain '..'")
+        total += len(content.encode("utf-8"))
+        out.append({"path": path, "content": content})
+    if total > PUSH_MAX_BYTES:
+        raise ValueError(
+            f"push batch is {total} bytes > {PUSH_MAX_BYTES}; split into batches"
+        )
+    return out
+
+
+def validate_remove_paths(paths: Any) -> list[str]:
+    """Check a remove batch and return the paths, stripped of a leading '/'."""
+    if not isinstance(paths, list) or not paths:
+        raise ValueError("paths must be a non-empty list of strings")
+    if len(paths) > REMOVE_MAX_PATHS:
+        raise ValueError(
+            f"too many paths in one remove: {len(paths)} > {REMOVE_MAX_PATHS}; split into batches"
+        )
+    out: list[str] = []
+    for i, p in enumerate(paths):
+        if not isinstance(p, str) or not p.strip():
+            raise ValueError(f"paths[{i}] must be a non-empty string")
+        out.append(p.strip().lstrip("/"))
+    return out
+
 # Payload schema for ctx_<slug>__index collections. content gets a full-text
 # index so exact identifiers are findable even when dense search misses them.
 INDEX_PAYLOAD_SCHEMA: dict[str, Any] = {
