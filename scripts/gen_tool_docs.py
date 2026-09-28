@@ -25,6 +25,7 @@ CATEGORIES: dict[str, list[str]] = {
     ],
     "Code & Doc Index": [
         "context_index", "context_index_search", "context_index_status",
+        "context_index_push", "context_index_remove",
     ],
     "Knowledge": [
         "context_checkpoint", "context_deprecate", "context_list", "context_ingest",

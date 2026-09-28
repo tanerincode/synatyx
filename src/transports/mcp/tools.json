@@ -699,6 +699,80 @@
     }
   },
   {
+    "name": "context_index_push",
+    "description": "Push file contents into the project's code/doc index (ctx_<slug>__index) — for callers whose repo is not on the Synatyx server's filesystem (CI, a service's own checkout). Idempotent: chunks whose content hash is unchanged are not re-embedded, so re-pushing a file costs only what changed. At most 50 files and 4 MiB of content per call; split larger sets into batches.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project slug (required — pushes never follow the active-project pointer)"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier; index searches only see chunks pushed under the same user_id"
+        },
+        "files": {
+          "type": "array",
+          "description": "Files to index, each {path, content}; path is repo-relative, content UTF-8 text",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ]
+          }
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Re-embed files even if their hash is unchanged (default: false)"
+        }
+      },
+      "required": [
+        "project",
+        "user_id",
+        "files"
+      ]
+    }
+  },
+  {
+    "name": "context_index_remove",
+    "description": "Remove files from the project's code/doc index: every chunk of each given repo-relative path is deleted. Use for files deleted or renamed in the repo since the last push. At most 1000 paths per call.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project slug (required — pushes never follow the active-project pointer)"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "User identifier; index searches only see chunks pushed under the same user_id"
+        },
+        "paths": {
+          "type": "array",
+          "description": "Repo-relative paths to remove",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "project",
+        "user_id",
+        "paths"
+      ]
+    }
+  },
+  {
     "name": "context_list",
     "description": "List memory items without a vector search — for browsing checkpoints, reviewing what's stored, or finding items to deprecate.",
     "parameters": {

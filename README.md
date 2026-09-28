@@ -114,6 +114,58 @@ make                   # starts everything + tails logs
 
 ---
 
+## Connecting Clients
+
+A remote Synatyx server accepts **either** the static admin key **or** an OAuth 2.1
+access token it issues itself. Set these in `.env` before you start:
+
+```bash
+AUTH_ADMIN_KEY=<a long random string>     # also the owner secret on the login page
+PUBLIC_URL=https://memory.example.com     # the URL clients type; https unless localhost
+OAUTH_ENABLED=true                        # default
+```
+
+### Connecting from claude.ai
+
+claude.ai cannot send custom headers, so it uses the OAuth flow (dynamic client
+registration + PKCE — no client IDs to copy anywhere).
+
+1. Settings → **Connectors** → *Add custom connector*.
+2. URL: `https://memory.example.com/mcp` (your `PUBLIC_URL` + `/mcp`). Leave the
+   advanced OAuth fields empty — discovery handles them.
+3. Click **Connect**. Synatyx shows a single-field page: enter your
+   `AUTH_ADMIN_KEY` (or `OAUTH_OWNER_PASSWORD`, if you set one) and confirm.
+4. The connector turns green and all tools appear. The token lasts an hour and
+   refreshes silently; re-authorizing only happens if you revoke or rotate keys.
+
+### Connecting from Claude Code
+
+Claude Code can send a header, which is the simplest path:
+
+```bash
+claude mcp add --transport http synatyx https://memory.example.com/mcp \
+  --header "X-Auth-Key: $AUTH_ADMIN_KEY"
+```
+
+It also supports OAuth — add it without a header and run `/mcp` in Claude Code,
+then pick *Authenticate*; the same login page opens in your browser:
+
+```bash
+claude mcp add --transport http synatyx https://memory.example.com/mcp
+```
+
+Behind a reverse proxy, set `FORWARDED_ALLOW_IPS` in `.env` to the proxy's address as
+the container sees it (uvicorn reads it; `"*"` is acceptable only when the app port is
+not published to the internet, which holds in `docker-compose.yml` where `synatyx-mcp`
+publishes no ports). Without it every caller shares one OAuth login throttle bucket, so
+ten wrong guesses from anyone lock the owner's own login out for a minute.
+
+Both paths hit the same `/mcp` endpoint. For local development
+(`PUBLIC_URL=http://localhost:9000`) plain HTTP is allowed; in production the
+issuer must be HTTPS or OAuth stays off and only the admin key works.
+
+---
+
 ## Documentation
 
 | Doc | What's inside |

@@ -65,6 +65,18 @@ class GarbageCollector:
             except Exception:
                 logger.exception("tool_usage prune failed")
 
+        # Anonymous OAuth registrations that never completed a handshake are
+        # also pruned lazily on /register; this keeps the table bounded even
+        # when nobody registers for a while.
+        try:
+            stale = await self._postgres.oauth_client_prune_unused(
+                _app_settings.oauth.unused_client_ttl_seconds
+            )
+            if stale:
+                logger.info("GC run %s pruned %d unused OAuth client registrations", run_id, stale)
+        except Exception:
+            logger.exception("oauth_clients prune failed")
+
         logger.info(
             "GC run %s finished — deprecated=%d deleted=%d skipped=%d",
             run_id,
