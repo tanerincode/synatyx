@@ -21,7 +21,7 @@
       "properties": {
         "synatyx.url": {
           "type": "string",
-          "default": "https://context.angeneral.com",
+          "default": "https://context.codearchive.co",
           "description": "Synatyx server base URL"
         },
         "synatyx.userId": {
