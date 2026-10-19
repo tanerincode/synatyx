@@ -6,6 +6,7 @@ from typing import Any
 from src.core.brief import BriefService
 from src.core.retrieve import empty_retrieve_diagnostics
 from src.models.context import ContextItem
+from src.models.handoff import OPEN_HANDOFF_STATUSES, Handoff, HandoffStatus
 from src.models.memory_layer import MemoryLayer
 from src.models.task import Task, TaskStatus
 
@@ -44,8 +45,36 @@ class FakeQdrantBrief:
 
 
 class FakePostgresBrief:
-    def __init__(self, tasks: list[Task] | None = None) -> None:
+    def __init__(
+        self, tasks: list[Task] | None = None, handoffs: list[Handoff] | None = None
+    ) -> None:
         self.tasks = tasks or []
+        self.handoffs = handoffs or []
+        self.handoff_fail = False
+        self.handoff_calls: list[dict[str, Any]] = []
+
+    async def handoff_list(
+        self,
+        user_id: str,
+        *,
+        project: str | None = None,
+        assignee: str | None = None,
+        statuses: list[HandoffStatus] | None = None,
+        limit: int = 50,
+    ) -> list[Handoff]:
+        self.handoff_calls.append(
+            {"project": project, "assignee": assignee, "statuses": statuses}
+        )
+        if self.handoff_fail:
+            raise RuntimeError("db down")
+        out = [h for h in self.handoffs if h.user_id == user_id]
+        if project:
+            out = [h for h in out if h.project == project]
+        if assignee:
+            out = [h for h in out if h.assignee == assignee]
+        if statuses:
+            out = [h for h in out if h.status in statuses]
+        return out[:limit]
 
     async def task_list(
         self,
@@ -84,11 +113,12 @@ def _service(
     project_items: list[ContextItem],
     l4_items: list[ContextItem] | None = None,
     tasks: list[Task] | None = None,
+    handoffs: list[Handoff] | None = None,
 ) -> BriefService:
     return BriefService(
         FakeQdrantBrief(project_items),  # type: ignore[arg-type]
         FakeQdrantBrief(l4_items or []),  # type: ignore[arg-type]
-        FakePostgresBrief(tasks),  # type: ignore[arg-type]
+        FakePostgresBrief(tasks, handoffs),  # type: ignore[arg-type]
     )
 
 
@@ -264,3 +294,79 @@ async def test_brief_without_project_keeps_legacy_unfiltered_tasks() -> None:
     )
     brief = await svc.brief("u1")
     assert len(brief["open_tasks"]) == 2
+
+
+# ── open_handoffs ────────────────────────────────────────────────────────────
+
+
+def _handoff(
+    slug: str,
+    assignee: str | None = "w3",
+    status: HandoffStatus = HandoffStatus.ASSIGNED,
+    project: str = "synatyx",
+    user_id: str = "u1",
+) -> Handoff:
+    return Handoff(
+        user_id=user_id,
+        project=project,
+        slug=slug,
+        title=f"Title {slug}",
+        assignee=assignee,
+        status=status,
+        body="SECRET BODY " * 50,
+    )
+
+
+async def test_brief_open_handoffs_listed_without_body() -> None:
+    h = _handoff("pr-c", status=HandoffStatus.IN_PROGRESS)
+    svc = _service([], handoffs=[h])
+    result = await svc.brief("u1", project="synatyx", assignee="w3")
+    assert result["open_handoffs"] == [
+        {
+            "id": h.id,
+            "slug": "pr-c",
+            "title": "Title pr-c",
+            "status": "in_progress",
+            "version": 1,
+            "updated_at": h.updated_at.isoformat(),
+        }
+    ]
+    assert "SECRET BODY" not in str(result)
+    calls = svc._postgres.handoff_calls  # type: ignore[attr-defined]
+    assert calls == [
+        {"project": "synatyx", "assignee": "w3", "statuses": list(OPEN_HANDOFF_STATUSES)}
+    ]
+
+
+async def test_brief_without_assignee_has_no_handoff_section() -> None:
+    svc = _service([], handoffs=[_handoff("pr-c")])
+    result = await svc.brief("u1", project="synatyx")
+    assert "open_handoffs" not in result
+    assert svc._postgres.handoff_calls == []  # type: ignore[attr-defined]
+
+
+async def test_brief_open_handoffs_excludes_other_assignees_and_closed() -> None:
+    mine = _handoff("mine", status=HandoffStatus.BLOCKED)
+    others = [
+        _handoff("theirs", assignee="w1"),
+        _handoff("done", status=HandoffStatus.DONE),
+        _handoff("cancelled", status=HandoffStatus.CANCELLED),
+        _handoff("draft", status=HandoffStatus.DRAFT),
+    ]
+    svc = _service([], handoffs=[mine, *others])
+    result = await svc.brief("u1", project="synatyx", assignee="w3")
+    assert [h["slug"] for h in result["open_handoffs"]] == ["mine"]
+
+
+async def test_brief_open_handoffs_storage_failure_is_swallowed() -> None:
+    svc = _service([_item("fact", metadata={"project": "synatyx"})], handoffs=[_handoff("pr-c")])
+    svc._postgres.handoff_fail = True  # type: ignore[attr-defined]
+    result = await svc.brief("u1", project="synatyx", assignee="w3")
+    assert result["open_handoffs"] == []
+    assert len(result["project_knowledge"]) == 1
+
+
+async def test_section_budget_sums_to_one() -> None:
+    from src.core.brief import SECTION_BUDGET
+
+    assert abs(sum(SECTION_BUDGET.values()) - 1.0) < 1e-9
