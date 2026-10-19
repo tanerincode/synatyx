@@ -702,3 +702,26 @@ def test_brief_update_and_404() -> None:
     assert client.patch(
         f"/dashboard/api/briefs/{ids['a']}", json={"user": "u2", "title": "x"}
     ).status_code == 404
+
+
+def test_brief_project_is_slugified_on_create_and_list() -> None:
+    client, _ = _briefs_client()
+
+    res = client.post(
+        "/dashboard/api/briefs",
+        json={"user": "u1", "project": "My Project", "title": "Cased"},
+    )
+    assert res.status_code == 201
+    assert res.json()["project"] == "my_project"
+
+    for project in ("my_project", "My Project", "MY_PROJECT"):
+        listed = client.get("/dashboard/api/briefs", params={"project": project})
+        assert [b["title"] for b in listed.json()["briefs"]] == ["Cased"], project
+
+    res = client.post(
+        "/dashboard/api/briefs",
+        json={"user": "u1", "project": "Synatyx", "title": "Upper"},
+    )
+    for project in ("synatyx", "Synatyx"):
+        listed = client.get("/dashboard/api/briefs", params={"project": project})
+        assert [b["title"] for b in listed.json()["briefs"]] == ["Upper"], project

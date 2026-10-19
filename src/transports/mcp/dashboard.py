@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 
 from src.core.handoff import HandoffService
+from src.core.project import slugify
 from src.models.handoff import Handoff, HandoffReport, HandoffStatus
 from src.models.memory_layer import MemoryLayer
 from src.models.task import TaskStatus
@@ -659,7 +660,9 @@ async def api_briefs(request: Request) -> JSONResponse:
     if error:
         return JSONResponse({"error": error}, status_code=400)
     user_id = request.query_params.get("user") or None
-    project = request.query_params.get("project") or None
+    # Handoffs are stored under the slugified project (as the MCP tools do).
+    raw_project = request.query_params.get("project")
+    project = slugify(raw_project) if raw_project else None
     assignee = request.query_params.get("assignee") or None
 
     if user_id:
@@ -739,7 +742,7 @@ async def api_brief_create(request: Request) -> JSONResponse:
     try:
         created = await service.create(
             user_id,
-            project,
+            slugify(project),
             title,
             _opt_str(body, "body") or "",
             assignee=_opt_str(body, "assignee") or None,
