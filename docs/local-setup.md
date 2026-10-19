@@ -7,6 +7,7 @@
 | Docker | 24+ | With Docker Compose v2 |
 | Python | 3.12+ | |
 | uv | latest | `pip install uv` |
+| Dev environment | locked | Set it up with `uv sync --all-extras --frozen` so ruff, mypy and redis match `uv.lock` |
 | OpenAI API Key | — | For embeddings + LLM summarization |
 
 ---

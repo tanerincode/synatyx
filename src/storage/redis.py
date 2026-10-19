@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import json
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as aioredis
 
@@ -14,6 +15,20 @@ BUDGET_KEY_PREFIX = "synatyx:budget"
 PUBSUB_CHANNEL = "synatyx:events"
 PROJECT_KEY_PREFIX = "synatyx:project"
 TRACE_KEY_PREFIX = "synatyx:trace"
+
+async def _aw(result: Any) -> Any:
+    """Await a redis-py command result.
+
+    redis-py types every command of the asyncio client as `Awaitable[T] | T`
+    (the stubs are shared with the sync client), which mypy refuses to await,
+    and which no generic signature resolves the same way on every mypy/redis
+    version. The asyncio client always returns an awaitable; the plain-value
+    branch only covers the other half of that type. Call sites give the result
+    the type they need.
+    """
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 
 class RedisStorage:
@@ -31,26 +46,27 @@ class RedisStorage:
         """Push a ContextItem to the L1 sliding window for a session."""
         key = self._l1_key(item.user_id, item.session_id or "default")
         payload = item.model_dump_json()
-        await self._client.rpush(key, payload)
+        await _aw(self._client.rpush(key, payload))
         # Trim to max window size, keeping pinned items safe via importance
-        length = await self._client.llen(key)
+        length: int = await _aw(self._client.llen(key))
         if length > L1_MAX_MESSAGES:
-            await self._client.ltrim(key, length - L1_MAX_MESSAGES, -1)
+            await _aw(self._client.ltrim(key, length - L1_MAX_MESSAGES, -1))
 
     async def l1_get(self, user_id: str, session_id: str) -> list[ContextItem]:
         """Retrieve all items in the L1 window for a session."""
         key = self._l1_key(user_id, session_id)
-        raw_items = await self._client.lrange(key, 0, -1)
+        raw_items: list[str] = await _aw(self._client.lrange(key, 0, -1))
         return [ContextItem.model_validate_json(r) for r in raw_items]
 
     async def l1_clear(self, user_id: str, session_id: str) -> None:
         """Clear the L1 window for a session (e.g. after summarization)."""
         key = self._l1_key(user_id, session_id)
-        await self._client.delete(key)
+        await _aw(self._client.delete(key))
 
     async def l1_length(self, user_id: str, session_id: str) -> int:
         key = self._l1_key(user_id, session_id)
-        return await self._client.llen(key)
+        length: int = await _aw(self._client.llen(key))
+        return length
 
     # -------------------------------------------------------------------------
     # Token Budget Tracking
@@ -63,12 +79,12 @@ class RedisStorage:
         self, user_id: str, session_id: str, layer: MemoryLayer, tokens: int
     ) -> None:
         key = self._budget_key(user_id, session_id)
-        await self._client.hset(key, layer.value, tokens)
+        await _aw(self._client.hset(key, layer.value, str(tokens)))
 
     async def budget_get(self, user_id: str, session_id: str) -> dict[str, int]:
         key = self._budget_key(user_id, session_id)
-        raw = await self._client.hgetall(key)
-        return {k: int(v) for k, v in raw.items()}  # type: ignore[misc]  # decode_responses=True gives str keys
+        raw: dict[Any, Any] = await _aw(self._client.hgetall(key))
+        return {k: int(v) for k, v in raw.items()}
 
     async def budget_total(self, user_id: str, session_id: str) -> int:
         budget = await self.budget_get(user_id, session_id)
@@ -76,7 +92,7 @@ class RedisStorage:
 
     async def budget_reset(self, user_id: str, session_id: str) -> None:
         key = self._budget_key(user_id, session_id)
-        await self._client.delete(key)
+        await _aw(self._client.delete(key))
 
     # -------------------------------------------------------------------------
     # Pub/Sub Events
@@ -85,7 +101,7 @@ class RedisStorage:
     async def publish(self, event_type: str, payload: dict[str, Any]) -> None:
         """Publish an event to the Synatyx events channel."""
         message = json.dumps({"event": event_type, "payload": payload})
-        await self._client.publish(PUBSUB_CHANNEL, message)
+        await _aw(self._client.publish(PUBSUB_CHANNEL, message))
 
     async def subscribe(self) -> aioredis.client.PubSub:
         """Return a PubSub object subscribed to the Synatyx events channel."""
@@ -100,12 +116,14 @@ class RedisStorage:
     async def project_set(self, user_id: str, slug: str) -> None:
         """Persist the active project slug for a user."""
         key = f"{PROJECT_KEY_PREFIX}:{user_id}"
-        await self._client.set(key, slug)
+        await _aw(self._client.set(key, slug))
 
     async def project_get(self, user_id: str) -> str | None:
         """Return the active project slug for a user, or None if not set."""
         key = f"{PROJECT_KEY_PREFIX}:{user_id}"
-        return await self._client.get(key)  # type: ignore[return-value]  # decode_responses=True gives str
+        # decode_responses=True, so a stored slug comes back as str
+        value: Any = await _aw(self._client.get(key))
+        return cast("str | None", value)
 
     # -------------------------------------------------------------------------
     # Session Activity Traces (server-side implicit capture)
@@ -141,7 +159,7 @@ class RedisStorage:
 
     async def trace_last_ts(self, user_id: str, scope: str) -> str | None:
         """Timestamp of the newest event in a trace (None if buffer is gone)."""
-        raw = await self._client.lindex(self._trace_key(user_id, scope), -1)
+        raw: str | None = await _aw(self._client.lindex(self._trace_key(user_id, scope), -1))
         if raw is None:
             return None
         try:
@@ -171,15 +189,15 @@ class RedisStorage:
 
     async def kv_set(self, key: str, value: str, ttl_seconds: int) -> None:
         """Store a string under an explicit key with a mandatory expiry."""
-        await self._client.set(key, value, ex=ttl_seconds)
+        await _aw(self._client.set(key, value, ex=ttl_seconds))
 
     async def kv_get(self, key: str) -> str | None:
-        raw = await self._client.get(key)
+        raw: Any = await _aw(self._client.get(key))
         return str(raw) if raw is not None else None
 
     async def kv_delete(self, key: str) -> int:
         """Delete a key; returns the number of keys removed (0 or 1)."""
-        return int(await self._client.delete(key))
+        return int(await _aw(self._client.delete(key)))
 
     async def kv_incr(self, key: str, ttl_seconds: int) -> int:
         """Atomically increment a counter; the TTL is set when the key is created.
@@ -198,7 +216,8 @@ class RedisStorage:
     # -------------------------------------------------------------------------
 
     async def ping(self) -> bool:
-        return await self._client.ping()
+        alive: bool = await _aw(self._client.ping())
+        return alive
 
     async def close(self) -> None:
         await self._client.aclose()
