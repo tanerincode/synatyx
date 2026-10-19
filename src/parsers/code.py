@@ -5,13 +5,19 @@ import re
 from pathlib import Path
 
 from src.parsers.base import BaseParser, ParsedChunk
+from src.parsers.dart import DartParseError, parse_dart
 
 _CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx",
     ".go", ".rs", ".java", ".cpp", ".c",
-    ".rb", ".php", ".swift", ".kt",
+    ".rb", ".php", ".swift", ".kt", ".dart",
     ".yml", ".yaml", ".toml", ".json",
 }
+
+# Generated Dart: noise in the index, rebuilt by build_runner.
+_GENERATED_DART_SUFFIXES = (
+    ".g.dart", ".freezed.dart", ".gr.dart", ".mocks.dart", ".config.dart",
+)
 
 # Regex patterns for non-Python function/class boundaries
 _FUNC_RE = re.compile(
@@ -28,6 +34,9 @@ class CodeParser(BaseParser):
 
     @classmethod
     def supports(cls, source: str) -> bool:
+        name = Path(source).name.lower()
+        if name.endswith(_GENERATED_DART_SUFFIXES):
+            return False
         return Path(source).suffix.lower() in _CODE_EXTENSIONS
 
     async def parse(self, source: str) -> list[ParsedChunk]:
@@ -37,6 +46,11 @@ class CodeParser(BaseParser):
 
         if path.suffix == ".py":
             return self._parse_python(text, source)
+        if path.suffix.lower() == ".dart":
+            try:
+                return parse_dart(text, source)
+            except (DartParseError, RecursionError, IndexError):
+                pass  # unparseable: generic chunking below
         return self._parse_generic(text, lang, source)
 
     @staticmethod

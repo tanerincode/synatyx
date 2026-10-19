@@ -1,0 +1,4 @@
+name: flutter_app
+dependencies:
+  flutter:
+    sdk: flutter

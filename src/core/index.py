@@ -44,8 +44,14 @@ DEFAULT_EXCLUDES = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
     "dist", "build", "target", ".next", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".idea", ".vscode",
+    # Dart / Flutter
+    ".dart_tool", "Pods", ".gradle",
 }
-EXCLUDED_FILES = {"uv.lock", "package-lock.json", "yarn.lock", "poetry.lock"}
+EXCLUDED_FILES = {
+    "uv.lock", "package-lock.json", "yarn.lock", "poetry.lock",
+    # Dart / Flutter
+    "pubspec.lock", ".flutter-plugins", ".flutter-plugins-dependencies",
+}
 
 # Limits on one push/remove call (context_index_push / context_index_remove and
 # their REST routes). A pusher splits larger sets into batches; the byte cap
