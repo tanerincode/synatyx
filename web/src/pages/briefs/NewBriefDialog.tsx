@@ -26,8 +26,9 @@ export function NewBriefDialog({ open, onClose, projects, briefs }: { open: bool
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     const who = owner.trim() || ownerFallback;
-    if (!title.trim() || !proj.trim() || !who) {
-      setError("Title, project and owner are required.");
+    const missing = [!title.trim() && "title", !proj.trim() && "project", !who && "owner"].filter(Boolean);
+    if (missing.length) {
+      setError(`Missing ${missing.join(", ")}.`);
       return;
     }
     setBusy(true);
@@ -94,7 +95,7 @@ export function NewBriefDialog({ open, onClose, projects, briefs }: { open: bool
         {error && <p role="alert" className="small" style={{ color: "var(--critical)", marginTop: 10 }}>{error}</p>}
         <div className="acts">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={busy}>{busy ? "Creating…" : "Create brief"}</button>
+          <button type="submit" className="btn primary" disabled={busy || (!owner.trim() && briefs === undefined)} title={!owner.trim() && briefs === undefined ? "Loading the default owner…" : undefined}>{busy ? "Creating…" : "Create brief"}</button>
         </div>
       </form>
     </Dialog>

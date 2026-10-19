@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 // Mock store (VITE_MOCK_ALL=1): 9 briefs; "Paged /items with q, origin, sort" is blocked,
 // "Dashboard redesign — build the Vite app" is in progress with a v1 → v2 history.
-const SHOTS = "test-results/shots";
+const SHOTS = "e2e/screenshots";
 
 test("kanban → detail → edit → versions", async ({ page }) => {
   await page.goto("./briefs");

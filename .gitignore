@@ -56,5 +56,6 @@ extensions/vscode/*.vsix
 # Web dashboard (web/)
 web/node_modules/
 web/dist-e2e*/
+web/e2e/screenshots/
 web/test-results/
 web/playwright-report/

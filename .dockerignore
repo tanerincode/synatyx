@@ -44,5 +44,6 @@ tmp/
 web/node_modules/
 web/dist/
 web/dist-e2e*/
+web/e2e/screenshots/
 web/test-results/
 web/playwright-report/
