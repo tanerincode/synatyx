@@ -313,6 +313,22 @@ async def index_script(_request: Request) -> Response:
         return JSONResponse({"error": "script not available"}, status_code=404)
 
 
+async def index_install(request: Request) -> Response:
+    """Serve the POSIX sh installer for the local indexer:
+    curl -s -H "X-Auth-Key: $KEY" $URL/index/install | SYNATYX_AUTH_KEY=$KEY sh
+    The script embeds this server's own URL (forwarded headers, else the
+    configured public URL, else the request URL)."""
+    from starlette.responses import PlainTextResponse
+
+    from src.transports.mcp.index_install import render_install_script, resolve_base_url
+
+    try:
+        url = resolve_base_url(request, settings.public_url)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return PlainTextResponse(render_install_script(url))
+
+
 async def index_diff(request: Request) -> JSONResponse:
     ok, err = await _index_service_from(request)
     if err is not None:
@@ -451,6 +467,7 @@ app = Starlette(
         Route("/index/diff", index_diff, methods=["POST"]),
         Route("/index/files", index_files, methods=["POST"]),
         Route("/index/script", index_script),
+        Route("/index/install", index_install),
         *DASHBOARD_ROUTES,
     ],
     middleware=_middleware,

@@ -148,3 +148,41 @@ def test_empty_admin_key_keeps_the_server_open_and_mounts_no_oauth(
     mcp = client.get("/mcp")
     assert mcp.status_code != 401
     assert "www-authenticate" not in mcp.headers
+
+
+def test_index_install_requires_the_key_and_serves_a_script_for_the_forwarded_url(
+    monkeypatch: pytest.MonkeyPatch, restore_module: None
+) -> None:
+    import subprocess
+
+    module = _reload(monkeypatch, admin_key=ADMIN_KEY)
+    assert module._oauth_provider is not None
+    module._oauth_provider.bind(clients=FakeClients(), kv=FakeKV())
+    client = _client(module)
+
+    assert client.get("/index/install").status_code == 401
+
+    response = client.get(
+        "/index/install",
+        headers={
+            "X-Auth-Key": ADMIN_KEY,
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "memory.example.com",
+        },
+    )
+    assert response.status_code == 200
+    script = response.text
+    assert script.startswith("#!/bin/sh")
+    assert "URL=https://memory.example.com\n" in script
+    assert "localhost" not in script
+    check = subprocess.run(["sh", "-n"], input=script, text=True, capture_output=True)
+    assert check.returncode == 0, check.stderr
+
+
+def test_index_install_falls_back_to_the_request_url(
+    monkeypatch: pytest.MonkeyPatch, restore_module: None
+) -> None:
+    module = _reload(monkeypatch, admin_key="")
+    response = _client(module).get("/index/install")
+    assert response.status_code == 200
+    assert "URL=http://testserver\n" in response.text
