@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC
 from typing import TYPE_CHECKING, Any, cast
 
 from mcp.server import Server
@@ -1447,57 +1446,19 @@ class SynatyxMCPServer:
 
         elif name == "context_gc_stats":
             # _get_services returns (storage, retrieve, store, ingest, suggestion)
-            qdrant = storage
-            from datetime import datetime, timedelta
-
             from src.config import settings as _settings
-            from src.core.gc import GarbageCollector
+            from src.core.hygiene import GC_STATS_WARN_DAYS, HygieneService
 
-            gc = GarbageCollector(qdrant=qdrant, postgres=self._postgres, settings=_settings.gc)
-            now = datetime.now(UTC)
-            warn_threshold = timedelta(days=14)
-
-            all_items, _ = await qdrant.scan_all_items(include_deprecated=True, limit=1000)
-            total = len(all_items)
-            protected = expiring_soon = deprecated = pending_hard_delete = 0
-
-            for item in all_items:
-                if item.get("is_deprecated"):
-                    deprecated += 1
-                    dep_raw = item.get("deprecated_at")
-                    if dep_raw:
-                        dep_at = datetime.fromisoformat(dep_raw)
-                        if dep_at.tzinfo is None:
-                            dep_at = dep_at.replace(tzinfo=UTC)
-                        if (now - dep_at).days >= _settings.gc.grace_period_days:
-                            pending_hard_delete += 1
-                    continue
-
-                if gc._is_immune(item):
-                    protected += 1
-                    continue
-
-                base_ttl = gc._get_base_ttl(item.get("memory_layer", ""))
-                if base_ttl is None:
-                    protected += 1
-                    continue
-
-                effective_ttl = gc.effective_ttl(base_ttl, item)
-                last_raw = item.get("last_accessed_at") or item.get("created_at")
-                if last_raw:
-                    last = datetime.fromisoformat(last_raw)
-                    if last.tzinfo is None:
-                        last = last.replace(tzinfo=UTC)
-                    remaining = timedelta(days=effective_ttl) - (now - last)
-                    if timedelta(0) < remaining <= warn_threshold:
-                        expiring_soon += 1
+            hygiene = HygieneService(storage, self._postgres, _settings.gc)
+            all_items, _ = await storage.scan_all_items(include_deprecated=True, limit=1000)
+            counts = hygiene.gc_counts(all_items, warn_days=GC_STATS_WARN_DAYS)
 
             return {
-                "total_items": total,
-                "protected": protected,
-                "expiring_soon_14d": expiring_soon,
-                "already_deprecated": deprecated,
-                "pending_hard_delete": pending_hard_delete,
+                "total_items": counts.total,
+                "protected": counts.protected,
+                "expiring_soon_14d": counts.expiring_soon,
+                "already_deprecated": counts.deprecated,
+                "pending_hard_delete": counts.pending_hard_delete,
                 "gc_enabled": _settings.gc.enabled,
                 "l2_base_ttl_days": _settings.gc.l2_base_ttl_days,
                 "l3_base_ttl_days": _settings.gc.l3_base_ttl_days,
