@@ -70,6 +70,32 @@ def _handoff_report(r: HandoffReport) -> dict[str, Any]:
     }
 
 
+HANDOFF_NOT_FOUND = "NOT_FOUND"
+HANDOFF_CONFLICT = "CONFLICT"
+HANDOFF_INVALID = "INVALID"
+
+
+def _handoff_error(message: str, code: str) -> dict[str, Any]:
+    """An error result with a machine-readable `code` next to the prose."""
+    return {"error": message, "code": code}
+
+
+def _handoff_error_code(message: str) -> str:
+    """Classify a ValueError raised by HandoffService or its storage.
+
+    The service raises plain ValueErrors, so the message is all there is to
+    go on. This is the one place that reads it. A missing parent is a bad
+    argument, not a missing resource, so it is checked before "not found".
+    """
+    if "parent handoff" in message:
+        return HANDOFF_INVALID
+    if "already exists" in message:
+        return HANDOFF_CONFLICT
+    if "not found" in message:
+        return HANDOFF_NOT_FOUND
+    return HANDOFF_INVALID
+
+
 def _handoff_status(value: Any) -> HandoffStatus | None:
     if value is None or value == "":
         return None
@@ -610,7 +636,9 @@ class SynatyxMCPServer:
         try:
             if name == "context_handoff_create":
                 if not project:
-                    return {"error": "context_handoff_create requires the project argument"}
+                    return _handoff_error(
+                        "context_handoff_create requires the project argument", HANDOFF_INVALID
+                    )
                 created = await svc.create(
                     user_id,
                     project,
@@ -627,7 +655,7 @@ class SynatyxMCPServer:
 
             if name == "context_handoff_get":
                 if not args.get("id") and not (project and args.get("slug")):
-                    return {"error": "Provide id, or project and slug"}
+                    return _handoff_error("Provide id, or project and slug", HANDOFF_INVALID)
                 found = await svc.get(
                     user_id,
                     args.get("id"),
@@ -636,7 +664,7 @@ class SynatyxMCPServer:
                     version=args.get("version"),
                 )
                 if found is None:
-                    return {"error": "Handoff not found"}
+                    return _handoff_error("Handoff not found", HANDOFF_NOT_FOUND)
                 handoff, reports = found
                 return {
                     "handoff": {**_handoff_meta(handoff), "body": handoff.body},
@@ -666,7 +694,9 @@ class SynatyxMCPServer:
                     author=args.get("author") or user_id,
                 )
                 if updated is None:
-                    return {"error": f"Handoff {args['id']!r} not found"}
+                    return _handoff_error(
+                        f"Handoff {args['id']!r} not found", HANDOFF_NOT_FOUND
+                    )
                 return {"handoff": _handoff_meta(updated)}
 
             if name == "context_handoff_report":
@@ -678,17 +708,21 @@ class SynatyxMCPServer:
                     status=_handoff_status(args.get("status")),
                 )
                 if report is None:
-                    return {"error": f"Handoff {args['id']!r} not found"}
+                    return _handoff_error(
+                        f"Handoff {args['id']!r} not found", HANDOFF_NOT_FOUND
+                    )
                 after = await svc.get(user_id, args["id"])
                 return {
                     "report": _handoff_report(report),
                     "handoff": _handoff_meta(after[0]) if after else None,
                 }
         except ValueError as exc:
-            return {"error": str(exc)}
+            return _handoff_error(str(exc), _handoff_error_code(str(exc)))
         except KeyError as exc:
-            return {"error": f"Missing required argument {exc.args[0]!r}"}
-        return {"error": f"Unknown handoff tool {name!r}"}
+            return _handoff_error(
+                f"Missing required argument {exc.args[0]!r}", HANDOFF_INVALID
+            )
+        return _handoff_error(f"Unknown handoff tool {name!r}", HANDOFF_INVALID)
 
     async def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         user_id = args.get("user_id", "")

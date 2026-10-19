@@ -537,11 +537,11 @@ def _camel(item: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
     return {keys.get(k, k): v for k, v in item.items()}
 
 
-def _handoff_failed(result: dict[str, Any], *, create: bool = False) -> JSONResponse | None:
+def _handoff_failed(result: dict[str, Any]) -> JSONResponse | None:
     """Map a handoff tool's error dict onto the envelope.
 
-    The handoff tools return plain `error` strings for what the caller did
-    (unknown id, slug taken, bad status) and raise for what broke, so an error
+    The handoff tools return an `error` with a `code` (NOT_FOUND, CONFLICT or
+    INVALID) for what the caller did and raise for what broke, so an error
     without an `error_type` is the caller's to fix and one with it goes
     through the generic mapping.
     """
@@ -551,12 +551,11 @@ def _handoff_failed(result: dict[str, Any], *, create: bool = False) -> JSONResp
         return _tool_failed(result)
 
     message = str(result["error"])
-    if "already exists" in message:
-        return error(INVALID_REQUEST, message, 409)
-    # On create the only thing that can be missing is the parent handoff, which
-    # is a bad field, not a missing resource.
-    if "not found" in message and not create:
+    code = result.get("code")
+    if code == "NOT_FOUND":
         return error(NOT_FOUND, message, 404)
+    if code == "CONFLICT":
+        return error(INVALID_REQUEST, message, 409)
     return error(INVALID_REQUEST, message, 400)
 
 
@@ -670,7 +669,7 @@ async def handoff_create(request: Request) -> JSONResponse:
         args["task_ids"] = [str(t) for t in task_ids]
 
     result = await synatyx.run_tool("context_handoff_create", args)
-    failure = _handoff_failed(result, create=True)
+    failure = _handoff_failed(result)
     if failure is not None:
         return failure
     return JSONResponse({"handoff": _camel(result["handoff"], _HANDOFF_KEYS)}, status_code=201)

@@ -20,7 +20,11 @@ USER = "tester"
 
 
 class FakeHandoffService:
-    """In-memory stand-in honouring the HandoffService contract."""
+    """In-memory stand-in honouring the HandoffService contract.
+
+    The ValueError wording is copied from src/core/handoff.py, because the
+    server classifies those messages into error codes.
+    """
 
     def __init__(self, storage: Any = None) -> None:
         self.items: dict[str, Handoff] = {}
@@ -33,9 +37,9 @@ class FakeHandoffService:
         slug = slug or title.lower().replace(" ", "-")
         if any(h.project == project and h.slug == slug and h.user_id == user_id
                for h in self.items.values()):
-            raise ValueError(f"Handoff slug {slug!r} already exists in project {project!r}")
+            raise ValueError(f"handoff slug '{slug}' already exists in project '{project}'")
         if parent_id and parent_id not in self.items:
-            raise ValueError(f"Parent handoff {parent_id!r} not found")
+            raise ValueError(f"parent handoff '{parent_id}' not found")
         h = Handoff(
             user_id=user_id, project=project, slug=slug, title=title, body=body,
             assignee=assignee, parent_id=parent_id, task_ids=task_ids or [],
@@ -62,7 +66,7 @@ class FakeHandoffService:
             return None
         if version is not None:
             if (h.id, version) not in self.bodies:
-                raise ValueError(f"Version {version} not found")
+                raise ValueError(f"version {version} of handoff '{h.id}' not found")
             h = h.model_copy(update={"version": version, "body": self.bodies[(h.id, version)]})
         reps = [r for r in self.reports if r.handoff_id == h.id][::-1]
         return h, reps[:10]
@@ -173,11 +177,13 @@ async def test_create_slug_clash_is_an_error_dict(server):
     await _create(server)
     res = await _create(server)
     assert "already exists" in res["error"]
+    assert res["code"] == "CONFLICT"
 
 
 async def test_create_bad_status_is_an_error_dict(server):
     res = await _create(server, status="nonsense")
     assert "Invalid status" in res["error"]
+    assert res["code"] == "INVALID"
 
 
 async def test_create_requires_project(server):
@@ -185,6 +191,7 @@ async def test_create_requires_project(server):
         "context_handoff_create", {"user_id": USER, "title": "t", "body": "b"}
     )
     assert "project" in res["error"]
+    assert res["code"] == "INVALID"
 
 
 async def test_get_by_id_returns_body_and_reports(server):
@@ -230,16 +237,19 @@ async def test_get_unknown_version_is_an_error_dict(server):
     hid = (await _create(server))["handoff"]["id"]
     res = await server._dispatch("context_handoff_get", {"user_id": USER, "id": hid, "version": 9})
     assert "not found" in res["error"]
+    assert res["code"] == "NOT_FOUND"
 
 
 async def test_get_not_found(server):
     res = await server._dispatch("context_handoff_get", {"user_id": USER, "id": "nope"})
     assert "not found" in res["error"]
+    assert res["code"] == "NOT_FOUND"
 
 
 async def test_get_needs_an_identifier(server):
     res = await server._dispatch("context_handoff_get", {"user_id": USER})
     assert "id" in res["error"]
+    assert res["code"] == "INVALID"
 
 
 async def test_list_filters_and_has_no_body(server):
@@ -290,6 +300,7 @@ async def test_update_not_found(server):
         "context_handoff_update", {"user_id": USER, "id": "nope", "title": "x"}
     )
     assert "not found" in res["error"]
+    assert res["code"] == "NOT_FOUND"
 
 
 async def test_report_moves_the_status(server):
@@ -308,11 +319,13 @@ async def test_report_not_found(server):
         "context_handoff_report", {"user_id": USER, "id": "nope", "agent": "w2", "text": "x"}
     )
     assert "not found" in res["error"]
+    assert res["code"] == "NOT_FOUND"
 
 
 async def test_report_missing_argument_is_an_error_dict(server):
     res = await server._dispatch("context_handoff_report", {"user_id": USER, "id": "x"})
     assert "agent" in res["error"]
+    assert res["code"] == "INVALID"
 
 
 async def test_task_assignee_round_trip(server):
@@ -413,3 +426,19 @@ async def test_brief_finds_handoffs_whatever_the_project_casing():
             "context_brief", {"user_id": USER, "project": spelling, "assignee": "w3"}
         )
         assert [h["slug"] for h in res["open_handoffs"]] == ["pr-c"], spelling
+
+
+async def test_create_unknown_parent_is_invalid_not_not_found(server):
+    res = await _create(server, parent_id="nope")
+    assert "parent handoff" in res["error"]
+    assert res["code"] == "INVALID"
+
+
+async def test_every_error_keeps_its_prose_and_gains_a_code(server):
+    res = await server._dispatch("context_handoff_get", {"user_id": USER, "id": "nope"})
+    assert res == {"error": "Handoff not found", "code": "NOT_FOUND"}
+
+
+async def test_success_results_carry_no_code(server):
+    res = await _create(server)
+    assert "code" not in res and "error" not in res

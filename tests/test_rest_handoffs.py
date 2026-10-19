@@ -223,3 +223,15 @@ def test_not_ready_before_the_server_exists():
     res = TestClient(app).get("/v1/handoffs", params={"userId": "u1"})
     assert res.status_code == 503
     assert res.json()["error"]["code"] == "NOT_READY"
+
+
+def test_mapping_follows_the_code_not_the_prose():
+    from src.transports.rest.v1 import _handoff_failed
+
+    # Prose that would have fooled the old substring matching.
+    not_found = _handoff_failed({"error": "something else entirely", "code": "NOT_FOUND"})
+    conflict = _handoff_failed({"error": "item not found here", "code": "CONFLICT"})
+    invalid = _handoff_failed({"error": "already exists and not found", "code": "INVALID"})
+    assert not_found is not None and not_found.status_code == 404
+    assert conflict is not None and conflict.status_code == 409
+    assert invalid is not None and invalid.status_code == 400
