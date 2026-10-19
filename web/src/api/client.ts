@@ -382,15 +382,15 @@ export const api = {
     const { bodies: _b, ...detail } = b;
     return delay(detail);
   },
-  /**
-   * Body of an earlier version, for the diff. The server's brief detail has no
-   * ?version= yet, so this is mock-only until it does.
-   */
+  /** Body of an earlier version, for the diff (GET /briefs/{id}?version=N). null when the server has no such version. */
   async briefVersionBody(id: string, user: string, version: number): Promise<string | null> {
     if (!MOCK_ALL) {
-      void user;
-      void version;
-      throw new ApiError("Earlier brief versions are not served yet (GET /briefs/{id}?version=)", 501);
+      try {
+        return (await request<BriefDetail>(`/briefs/${encodeURIComponent(id)}`, { query: { user, version } })).body;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
     }
     const b = mockStore().briefs.find((x) => x.id === id);
     return delay(b?.bodies[version] ?? null);

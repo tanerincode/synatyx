@@ -1,6 +1,13 @@
-import { PagePlaceholder } from "../components/ui";
+import { Route, Routes } from "react-router-dom";
+import { BriefsBoard } from "./briefs/Board";
+import { BriefDetailView } from "./briefs/Detail";
 
-// Placeholder: the page is built in its own PR (src/pages/Briefs.tsx + src/pages/briefs/).
+// Briefs (handoffs): board/list at /briefs, detail at /briefs/:id?owner=<user_id>.
 export default function BriefsPage() {
-  return <PagePlaceholder title="Briefs" lede="Handoffs an orchestrator writes for an agent: board, list and detail with the report thread." calls={["api.briefs", "api.brief", "api.createBrief", "api.patchBrief"]} />;
+  return (
+    <Routes>
+      <Route index element={<BriefsBoard />} />
+      <Route path=":id" element={<BriefDetailView />} />
+    </Routes>
+  );
 }

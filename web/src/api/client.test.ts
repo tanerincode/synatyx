@@ -54,8 +54,12 @@ describe("request", () => {
     await expect(api.overview()).rejects.toMatchObject({ status: 0, message: "Network error: Failed to fetch" });
   });
 
-  it("refuses earlier brief versions until the server serves them", async () => {
-    await expect(api.briefVersionBody("b1", "tom", 1)).rejects.toMatchObject({ status: 501 });
+  it("fetches an earlier brief version with ?version and maps 404 to null", async () => {
+    const fetch = stubFetch(200, { body: "old body", version: 1 });
+    await expect(api.briefVersionBody("b1", "tom", 1)).resolves.toBe("old body");
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("/dashboard/api/briefs/b1?user=tom&version=1");
+    stubFetch(404, { error: "version 9 not found" });
+    await expect(api.briefVersionBody("b1", "tom", 9)).resolves.toBeNull();
   });
 });
 

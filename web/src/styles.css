@@ -582,3 +582,13 @@ td.right, th.right { text-align: right; }
 .layer-mini { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin-top: 10px; background: var(--line); }
 .layer-mini span + span { box-shadow: inset 1px 0 0 rgba(0,0,0,0.35); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── briefs ─────────────────────────────────────────────────── */
+.field > span { font: 10px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.nb-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; margin-top: 14px; }
+.col-h .add { background: none; border: 0; padding: 0 4px; }
+.col-empty { color: var(--muted); font-size: 12px; padding: 18px 8px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+.thread { list-style: none; padding: 0; margin: 0; }
+.bd-title-input { font-size: 20px; font-weight: 700; width: 100%; }
+.btn.on { border-color: var(--violet); color: var(--ink); }
+@media (max-width: 900px) { .nb-grid { grid-template-columns: 1fr 1fr; } }

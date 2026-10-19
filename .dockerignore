@@ -43,6 +43,6 @@ tmp/
 # Web dashboard: built in the Dockerfile's node stage, never copied from the host
 web/node_modules/
 web/dist/
-web/dist-e2e/
+web/dist-e2e*/
 web/test-results/
 web/playwright-report/

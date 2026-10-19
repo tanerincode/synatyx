@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Several worktrees share this machine: pick a free port with E2E_PORT.
+const PORT = Number(process.env.E2E_PORT ?? 4173);
+const OUT = `dist-e2e-${PORT}`;
+
 // e2e runs the production build under `vite preview` with every endpoint
 // mocked (VITE_MOCK_ALL=1), so no Python server or database is needed.
 export default defineConfig({
@@ -9,14 +13,14 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL: "http://localhost:4173/dashboard/",
+    baseURL: `http://localhost:${PORT}/dashboard/`,
     viewport: { width: 1440, height: 900 },
     trace: "off",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } }],
   webServer: {
-    command: "VITE_MOCK_ALL=1 npx vite build --outDir dist-e2e && npx vite preview --outDir dist-e2e",
-    url: "http://localhost:4173/dashboard/",
+    command: `VITE_MOCK_ALL=1 npx vite build --outDir ${OUT} && npx vite preview --outDir ${OUT} --port ${PORT} --strictPort`,
+    url: `http://localhost:${PORT}/dashboard/`,
     reuseExistingServer: false,
     timeout: 120_000,
   },
