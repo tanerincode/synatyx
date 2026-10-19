@@ -333,7 +333,7 @@ Update a task — change its status, priority, title, or description.
 
 ### `context_handoff_create`
 
-Create a handoff: a versioned brief that one agent writes for another (or for a later session) to pick up. Call it when you are delegating work or parking work with full instructions. The body is the full brief in markdown. Status defaults to 'assigned' when an assignee is given, else 'draft'. Returns the handoff metadata (id, slug, version, status, assignee) without the body. Errors if the slug is already used in that project or parent_id does not exist.
+Create a handoff: a versioned brief that one agent writes for another (or for a later session) to pick up. Call it when you are delegating work or parking work with full instructions. The body is the full brief in markdown. Status defaults to 'assigned' when an assignee is given, else 'draft'. Returns the handoff metadata (id, slug, version, status, assignee) without the body. Errors if the slug is already used in that project or parent_id does not exist. Errors come back as {error, code} where code is NOT_FOUND, CONFLICT (slug already used) or INVALID.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -350,7 +350,7 @@ Create a handoff: a versioned brief that one agent writes for another (or for a 
 
 ### `context_handoff_get`
 
-Fetch one handoff in full: the current body, its metadata and the latest 10 reports (newest first). Call it when you are about to start work on a handoff or need its complete text. Identify it by id, or by project + slug. Pass version to read an earlier body. Returns {handoff, reports}, or an error if it is not found.
+Fetch one handoff in full: the current body, its metadata and the latest 10 reports (newest first). Call it when you are about to start work on a handoff or need its complete text. Identify it by id, or by project + slug. Pass version to read an earlier body. Returns {handoff, reports}, or an error if it is not found. Errors come back as {error, code} where code is NOT_FOUND, CONFLICT (slug already used) or INVALID.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -362,7 +362,7 @@ Fetch one handoff in full: the current body, its metadata and the latest 10 repo
 
 ### `context_handoff_list`
 
-List handoffs, most recently updated first, filtered by project, assignee and/or status. Call it to survey what exists. Returns metadata only (id, slug, title, status, assignee, version, updated_at) and never the body; use context_handoff_get for the body.
+List handoffs, most recently updated first, filtered by project, assignee and/or status. Call it to survey what exists. Returns metadata only (id, slug, title, status, assignee, version, updated_at) and never the body; use context_handoff_get for the body. Errors come back as {error, code} where code is NOT_FOUND, CONFLICT (slug already used) or INVALID.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -373,7 +373,7 @@ List handoffs, most recently updated first, filtered by project, assignee and/or
 
 ### `context_handoff_update`
 
-Edit a handoff: change its body, title, status or assignee. A body that differs from the current one creates a new version; an identical body does not. Call it when the brief changes or the work is reassigned. Returns the updated metadata (without the body), or an error if the handoff is not found.
+Edit a handoff: change its body, title, status or assignee. A body that differs from the current one creates a new version; an identical body does not. Call it when the brief changes or the work is reassigned. Returns the updated metadata (without the body), or an error if the handoff is not found. Errors come back as {error, code} where code is NOT_FOUND, CONFLICT (slug already used) or INVALID.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -387,7 +387,7 @@ Edit a handoff: change its body, title, status or assignee. A body that differs 
 
 ### `context_handoff_report`
 
-Append a progress report to a handoff, optionally moving its status in the same step (e.g. 'done' or 'blocked'). Call it when you finish, get blocked, or have a result the delegator should see. Returns the saved report and the handoff's status afterwards, or an error if the handoff is not found.
+Append a progress report to a handoff, optionally moving its status in the same step (e.g. 'done' or 'blocked'). Call it when you finish, get blocked, or have a result the delegator should see. Returns the saved report and the handoff's status afterwards, or an error if the handoff is not found. Errors come back as {error, code} where code is NOT_FOUND, CONFLICT (slug already used) or INVALID.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -399,7 +399,7 @@ Append a progress report to a handoff, optionally moving its status in the same 
 
 ### `context_handoff_mine`
 
-List the open handoffs (assigned, in_progress, blocked) for one assignee. Call it at session start to find your own work. Returns metadata only, never the body; use context_handoff_get for the body.
+List the open handoffs (assigned, in_progress, blocked) for one assignee. Call it at session start to find your own work. Returns metadata only, never the body; use context_handoff_get for the body. Errors come back as {error, code} where code is NOT_FOUND, CONFLICT (slug already used) or INVALID.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
