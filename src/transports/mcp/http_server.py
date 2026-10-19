@@ -25,22 +25,7 @@ from src.core.oauth import SynatyxOAuthProvider
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
 from src.storage.redis import RedisStorage
-from src.transports.mcp.dashboard import (
-    api_brief_create,
-    api_brief_detail,
-    api_brief_update,
-    api_briefs,
-    api_graph,
-    api_index_chunks,
-    api_index_graph,
-    api_indexes,
-    api_items,
-    api_overview,
-    api_tasks,
-    api_usage,
-    api_users,
-    dashboard_page,
-)
+from src.transports.mcp.dashboard import DASHBOARD_ROUTES
 from src.transports.mcp.oauth import (
     LOGIN_PATH,
     PUBLIC_OAUTH_PATHS,
@@ -466,20 +451,7 @@ app = Starlette(
         Route("/index/diff", index_diff, methods=["POST"]),
         Route("/index/files", index_files, methods=["POST"]),
         Route("/index/script", index_script),
-        Route("/dashboard", dashboard_page),
-        Route("/dashboard/api/overview", api_overview),
-        Route("/dashboard/api/items", api_items),
-        Route("/dashboard/api/tasks", api_tasks),
-        Route("/dashboard/api/users", api_users),
-        Route("/dashboard/api/graph", api_graph),
-        Route("/dashboard/api/indexes", api_indexes),
-        Route("/dashboard/api/index_graph", api_index_graph),
-        Route("/dashboard/api/index_chunks", api_index_chunks),
-        Route("/dashboard/api/usage", api_usage),
-        Route("/dashboard/api/briefs", api_briefs),
-        Route("/dashboard/api/briefs", api_brief_create, methods=["POST"]),
-        Route("/dashboard/api/briefs/{id}", api_brief_detail),
-        Route("/dashboard/api/briefs/{id}", api_brief_update, methods=["PATCH"]),
+        *DASHBOARD_ROUTES,
     ],
     middleware=_middleware,
     lifespan=lifespan,
