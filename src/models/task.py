@@ -7,14 +7,14 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(str, Enum):  # noqa: UP042  # StrEnum changes str() output
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
     CANCELLED = "cancelled"
 
 
-class TaskPriority(str, Enum):
+class TaskPriority(str, Enum):  # noqa: UP042  # StrEnum changes str() output
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"

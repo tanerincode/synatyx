@@ -411,7 +411,9 @@ class QdrantStorage:
         offset: str | None = None,
         with_vectors: bool = False,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        """Scroll ALL items in the collection without user_id filter — for GC/consolidation use only.
+        """Scroll ALL items in the collection without user_id filter.
+
+        For GC/consolidation use only.
 
         Returns (items_payload_list, next_offset) for pagination. With
         with_vectors=True each payload dict also carries its embedding under

@@ -7,7 +7,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(str, Enum):  # noqa: UP042  # StrEnum changes str() output
     ACTIVE = "active"
     SUMMARIZED = "summarized"
     CLOSED = "closed"

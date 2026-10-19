@@ -51,7 +51,9 @@ class CodeParser(BaseParser):
 
         lines = text.splitlines()
 
-        def make_chunk(node: ast.AST, name: str, kind: str, end_line: int | None = None) -> ParsedChunk:
+        def make_chunk(
+            node: ast.AST, name: str, kind: str, end_line: int | None = None
+        ) -> ParsedChunk:
             start = node.lineno - 1  # type: ignore[attr-defined]
             end = end_line if end_line is not None else (node.end_lineno or start + 1)  # type: ignore[attr-defined]
             snippet = "\n".join(lines[start:end])

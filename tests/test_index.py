@@ -248,7 +248,9 @@ async def test_index_status_reports_stale_and_missing(tmp_path: Path) -> None:
 
 # ── IndexSearchService ───────────────────────────────────────────────────────
 
-async def _seed_code_index(tmp_path: Path, storage: FakeIndexStorage, embedder: FakeEmbedder) -> None:
+async def _seed_code_index(
+    tmp_path: Path, storage: FakeIndexStorage, embedder: FakeEmbedder
+) -> None:
     f = tmp_path / "core.py"
     f.write_text(
         "def get_storage_for(name):\n    return name\n"

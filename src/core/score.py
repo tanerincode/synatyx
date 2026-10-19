@@ -87,7 +87,9 @@ def score_item(
         + WEIGHT_USER_SIGNAL * user_signal
     )
 
-    _scored_fields = {"recency_score", "semantic_score", "importance_score", "user_signal_score", "score"}
+    _scored_fields = {
+        "recency_score", "semantic_score", "importance_score", "user_signal_score", "score",
+    }
     base = item.model_dump(exclude=_scored_fields)
     return ScoredContextItem(
         **base,

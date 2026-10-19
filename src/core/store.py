@@ -289,6 +289,8 @@ class StoreService:
             # Postgres being down must not break L1 storage
             import logging
             logging.getLogger(__name__).warning(
-                "Could not upsert session %s for user %s — Postgres unavailable", session_id, user_id
+                "Could not upsert session %s for user %s — Postgres unavailable",
+                session_id,
+                user_id,
             )
 

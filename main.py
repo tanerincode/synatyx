@@ -25,8 +25,13 @@ def _run_mcp_http(host: str, port: int, debug: bool) -> None:
     )
 
 
-async def _connect_with_retry(label: str, connect_fn, *, max_attempts: int = 5, base_delay: float = 1.0):
-    """Try connect_fn up to max_attempts times with exponential back-off. Returns True on success."""
+async def _connect_with_retry(
+    label: str, connect_fn, *, max_attempts: int = 5, base_delay: float = 1.0
+):
+    """Try connect_fn up to max_attempts times with exponential back-off.
+
+    Returns True on success.
+    """
     for attempt in range(1, max_attempts + 1):
         try:
             await connect_fn()
@@ -39,8 +44,10 @@ async def _connect_with_retry(label: str, connect_fn, *, max_attempts: int = 5, 
                                label, attempt, max_attempts, exc, delay)
                 await asyncio.sleep(delay)
             else:
-                logger.error("%s still unavailable after %d attempts — continuing in degraded mode: %s",
-                             label, max_attempts, exc)
+                logger.error(
+                    "%s still unavailable after %d attempts — continuing in degraded mode: %s",
+                    label, max_attempts, exc,
+                )
     return False
 
 
@@ -51,7 +58,11 @@ async def _run_mcp_stdio() -> None:
     from src.storage.redis import RedisStorage
     from src.transports.mcp.server import SynatyxMCPServer
 
-    qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port, collection_name=settings.qdrant.collection_name)
+    qdrant = QdrantStorage(
+        host=settings.qdrant.host,
+        port=settings.qdrant.port,
+        collection_name=settings.qdrant.collection_name,
+    )
     await _connect_with_retry("Qdrant", qdrant.init_collection)
 
     redis = RedisStorage(url=settings.redis.url)
@@ -103,7 +114,9 @@ async def _run_gc() -> None:
         settings.gc.l3_base_ttl_days,
     )
 
-    qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port, collection_name="ctx_system")
+    qdrant = QdrantStorage(
+        host=settings.qdrant.host, port=settings.qdrant.port, collection_name="ctx_system"
+    )
     postgres = PostgresStorage(dsn=settings.postgres.dsn)
     await _connect_with_retry("Qdrant", qdrant.init_collection)
     await _connect_with_retry("PostgreSQL", postgres.connect)

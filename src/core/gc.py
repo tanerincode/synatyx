@@ -61,7 +61,10 @@ class GarbageCollector:
                 cutoff = datetime.now(UTC) - timedelta(days=retention)
                 pruned = await self._postgres.usage_prune(before=cutoff)
                 if pruned:
-                    logger.info("GC run %s pruned %d tool_usage rows older than %dd", run_id, pruned, retention)
+                    logger.info(
+                        "GC run %s pruned %d tool_usage rows older than %dd",
+                        run_id, pruned, retention,
+                    )
             except Exception:
                 logger.exception("tool_usage prune failed")
 

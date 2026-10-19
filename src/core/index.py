@@ -666,7 +666,8 @@ def _extract_identifiers(query: str) -> list[str]:
         return quoted[:_MAX_IDENTIFIERS]
     idents = [
         t for t in _IDENT_RE.findall(query)
-        if t.lower() not in STOP_WORDS and ("_" in t or any(c.isupper() for c in t[1:]) or len(t) > 6)
+        if t.lower() not in STOP_WORDS
+        and ("_" in t or any(c.isupper() for c in t[1:]) or len(t) > 6)
     ]
     idents.sort(key=len, reverse=True)
     return idents[:_MAX_IDENTIFIERS]

@@ -104,7 +104,11 @@ class Consolidator:
         collections = await self._qdrant.get_all_collections()
         for collection in collections:
             from src.core.project import is_index_collection
-            if collection in _SKIP_COLLECTIONS or not collection.startswith("ctx_") or is_index_collection(collection):
+            if (
+                collection in _SKIP_COLLECTIONS
+                or not collection.startswith("ctx_")
+                or is_index_collection(collection)
+            ):
                 continue
             scoped = self._qdrant.scoped(collection)
             stats = await self._process_collection(scoped, collection, totals)

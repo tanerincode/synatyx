@@ -59,7 +59,9 @@ class RedisStorage:
     def _budget_key(self, user_id: str, session_id: str) -> str:
         return f"{BUDGET_KEY_PREFIX}:{user_id}:{session_id}"
 
-    async def budget_set(self, user_id: str, session_id: str, layer: MemoryLayer, tokens: int) -> None:
+    async def budget_set(
+        self, user_id: str, session_id: str, layer: MemoryLayer, tokens: int
+    ) -> None:
         key = self._budget_key(user_id, session_id)
         await self._client.hset(key, layer.value, tokens)
 

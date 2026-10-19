@@ -28,8 +28,10 @@ def upgrade() -> None:
     sa.Column('status', sa.String(), nullable=False),
     sa.Column('priority', sa.String(), nullable=False),
     sa.Column('project', sa.String(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'),
+              nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'),
+              nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_tasks_project'), 'tasks', ['project'], unique=False)

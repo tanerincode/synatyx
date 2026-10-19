@@ -355,7 +355,8 @@ class PackService:
         entries = []
         for t in ranked:
             desc = (t.description or "")[:200]
-            content = f"[{t.status.value if hasattr(t.status, 'value') else t.status}] {t.title}: {desc}"
+            status = t.status.value if hasattr(t.status, "value") else t.status
+            content = f"[{status}] {t.title}: {desc}"
             payload = {
                 "id": t.id,
                 "title": t.title,
@@ -484,7 +485,11 @@ def render_pack(
                     + (f" — {entry['description']}" if entry.get("description") else "")
                 )
             elif name == "skills":
-                suffix = "" if entry.get("body_included") else " (body omitted — fetch with context_skill_get)"
+                suffix = (
+                    ""
+                    if entry.get("body_included")
+                    else " (body omitted — fetch with context_skill_get)"
+                )
                 if entry.get("body_included"):
                     lines.append(f"- **{entry.get('name')}**:")
                     lines.append("")
@@ -500,7 +505,7 @@ def render_pack(
                 if snippet:
                     lang = entry.get("language", "")
                     lines.append(f"  ```{lang}")
-                    lines.extend(f"  {l}" for l in snippet.splitlines())
+                    lines.extend(f"  {line}" for line in snippet.splitlines())
                     lines.append("  ```")
             else:
                 content = str(entry.get("content", "")).replace("\n", " ").strip()

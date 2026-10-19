@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 _PREVIEW = 120
 
 
-def build_trace_event(tool: str, args: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
+def build_trace_event(
+    tool: str, args: dict[str, Any], result: dict[str, Any]
+) -> dict[str, Any] | None:
     """Distill one MCP tool call into a compact trace event, or None if the
     call isn't session-narrative material (project lookups, lists, errors)."""
     if not isinstance(result, dict) or "error" in result:

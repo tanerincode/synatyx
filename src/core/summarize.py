@@ -27,7 +27,7 @@ Messages:
 
 Respond in this exact format:
 SUMMARY: <summary text>
-ENTITIES: <json array>"""
+ENTITIES: <json array>"""  # noqa: E501
 
 
 @dataclass
@@ -138,7 +138,9 @@ class SummarizeService:
             self._safe_summarize(session_id, user_id, max_tokens, focus)
         )
 
-    async def _safe_summarize(self, session_id: str, user_id: str, max_tokens: int, focus: str | None) -> None:
+    async def _safe_summarize(
+        self, session_id: str, user_id: str, max_tokens: int, focus: str | None
+    ) -> None:
         try:
             await self.summarize(session_id, user_id, max_tokens, focus)
         except Exception:
