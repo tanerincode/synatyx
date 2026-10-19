@@ -110,7 +110,17 @@ async function post(base, key, route, payload) {
 async function runIndex(trigger) {
   if (running) return;
   const { url, userId, project, root } = cfg();
-  if (!root || !url || !project) return;
+  if (!root || !project) return;
+  if (!url) {
+    // No default server is baked in, so say what is missing rather than do nothing.
+    setStatus("$(database) Synatyx: set synatyx.url", "Set synatyx.url to your Synatyx server URL");
+    if (trigger === "manual" || trigger === "key-set") {
+      vscode.window.showWarningMessage(
+        "Synatyx: set synatyx.url (Settings → Synatyx) to your server URL, e.g. https://synatyx.example.com",
+      );
+    }
+    return;
+  }
   const key = await secrets.get(KEY_SECRET);
   if (!key) {
     setStatus("$(database) Synatyx: no key", "Run “Synatyx: Set Auth Key” to enable indexing");

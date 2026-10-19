@@ -6,14 +6,20 @@ nothing talks to a network.
 """
 from __future__ import annotations
 
+import http.server
 import importlib.util
 import io
 import json
 import os
+import ssl
 import stat
 import subprocess
 import sys
+import threading
 import time
+import types
+import urllib.error
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -77,11 +83,17 @@ def ix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("PATH", f"{fakebin}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_SECURITY_LOG", str(tmp_path / "security.log"))
     monkeypatch.setenv("FAKE_SECURITY_STORE", str(tmp_path / "security.store"))
-    for name in ("SYNATYX_AUTH_KEY", "SYNATYX_URL", "SYNATYX_USER_ID"):
+    for name in (
+        "SYNATYX_AUTH_KEY", "SYNATYX_URL", "SYNATYX_USER_ID", "SYNATYX_INDEX",
+        "CLAUDE_CONFIG_DIR", "SSL_CERT_FILE", "SSL_CERT_DIR",
+    ):
         monkeypatch.delenv(name, raising=False)
 
     module = _load()
     monkeypatch.setattr(module, "is_macos", lambda: True)
+    # No network in these tests: install's connectivity check is exercised on its own.
+    module.real_check_connection = module.check_connection
+    monkeypatch.setattr(module, "check_connection", lambda url, key: None)
     module.home = home
     module.security_log = tmp_path / "security.log"
     module.security_store = tmp_path / "security.store"
@@ -407,7 +419,7 @@ def test_push_without_a_key_exits_zero_and_pushes_nothing(ix, monkeypatch, tmp_p
     monkeypatch.setattr(ix, "post", lambda *a, **k: pytest.fail("no key, no request"))
     args = ix.build_parser().parse_args(["push", "--root", str(repo)])
     assert ix.cmd_push(args) == 0
-    assert "no auth key" in (ix.cache_dir() / "index.log").read_text()
+    assert "no auth key" in (ix.cache_dir() / "push.log").read_text()
 
 
 def test_push_swallows_server_errors(ix, monkeypatch, tmp_path):
@@ -570,3 +582,293 @@ def test_flutter_tree_keeps_source_and_drops_generated_and_build_files(ix, tmp_p
     found = sorted(str(p.relative_to(app)) for p in ix.list_files(app) if ix.indexable(p))
 
     assert found == sorted(kept)
+
+
+# ── TLS: CA bundle fallback ─────────────────────────────────────────────────
+
+def _fake_ssl(ix: Any, monkeypatch: pytest.MonkeyPatch, *, has_certs: bool) -> list[Any]:
+    """Replace context creation, recording which cafile each context was built with."""
+    built: list[Any] = []
+
+    def create_default_context(cafile: str | None = None) -> Any:
+        ctx = types.SimpleNamespace(cafile=cafile)
+        built.append(ctx)
+        return ctx
+
+    monkeypatch.setattr(ix.ssl, "create_default_context", create_default_context)
+    monkeypatch.setattr(ix, "_has_ca_certs", lambda ctx: has_certs or ctx.cafile is not None)
+    return built
+
+
+def test_ssl_uses_the_default_context_when_it_has_cas(ix, monkeypatch):
+    built = _fake_ssl(ix, monkeypatch, has_certs=True)
+    monkeypatch.setattr(ix, "system_cafile", lambda: pytest.fail("not needed"))
+    assert ix.ssl_context() is built[0]
+    assert len(built) == 1
+
+
+def test_ssl_trusts_ssl_cert_file_even_without_loaded_cas(ix, monkeypatch):
+    built = _fake_ssl(ix, monkeypatch, has_certs=False)
+    monkeypatch.setenv("SSL_CERT_FILE", "/somewhere/ca.pem")
+    monkeypatch.setattr(ix, "system_cafile", lambda: pytest.fail("env var wins"))
+    assert ix.ssl_context().cafile is None
+    assert len(built) == 1
+
+
+def test_ssl_falls_back_to_the_system_bundle_then_certifi_then_default(ix, monkeypatch, tmp_path):
+    system = tmp_path / "etc-ssl-cert.pem"
+    certifi = tmp_path / "certifi-cacert.pem"
+    system.write_text("x")
+    certifi.write_text("x")
+
+    built = _fake_ssl(ix, monkeypatch, has_certs=False)
+    monkeypatch.setattr(ix, "system_cafile", lambda: str(system))
+    monkeypatch.setattr(ix, "certifi_cafile", lambda: str(certifi))
+    assert ix.ssl_context().cafile == str(system)
+
+    ix._ssl_context = None
+    monkeypatch.setattr(ix, "system_cafile", lambda: None)
+    assert ix.ssl_context().cafile == str(certifi)
+
+    ix._ssl_context = None
+    monkeypatch.setattr(ix, "certifi_cafile", lambda: None)
+    assert ix.ssl_context().cafile is None  # the plain default, still verifying
+    assert built[-1].cafile is None
+
+
+def test_ssl_context_is_built_once(ix, monkeypatch):
+    built = _fake_ssl(ix, monkeypatch, has_certs=True)
+    assert ix.ssl_context() is ix.ssl_context()
+    assert len(built) == 1
+
+
+def test_system_cafile_probe_checks_the_file(ix, monkeypatch, tmp_path):
+    monkeypatch.setattr(ix, "SYSTEM_CAFILE", str(tmp_path / "missing.pem"))
+    assert ix.system_cafile() is None
+    present = tmp_path / "cert.pem"
+    present.write_text("x")
+    monkeypatch.setattr(ix, "SYSTEM_CAFILE", str(present))
+    assert ix.system_cafile() == str(present)
+
+
+def test_every_request_uses_the_shared_context(ix, monkeypatch):
+    seen: list[Any] = []
+
+    def fake_urlopen(req: Any, timeout: float = 0, context: Any = None) -> Any:
+        seen.append(context)
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(ix.urllib.request, "urlopen", fake_urlopen)
+    sentinel = object()
+    monkeypatch.setattr(ix, "_ssl_context", sentinel)
+    ix.post("https://x/index/diff", "k", {})
+    assert seen == [sentinel]
+
+
+# ── install: the connectivity check ─────────────────────────────────────────
+
+@pytest.fixture
+def stub_server() -> Iterator[str]:
+    """A local server that answers GET /index/script only to the right key."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            ok = self.path == "/index/script" and self.headers.get("X-Auth-Key") == "sekret"
+            self.send_response(200 if ok else 401)
+            self.end_headers()
+            self.wfile.write(b"# script" if ok else b"no")
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+def _install_at(ix: Any, monkeypatch: pytest.MonkeyPatch, url: str, key: str, *extra: str) -> int:
+    monkeypatch.setenv("SYNATYX_AUTH_KEY", key)
+    args = ix.build_parser().parse_args(["install", "--url", url, "--user", "tom", *extra])
+    code: int = ix.cmd_install(args)
+    return code
+
+
+def test_install_succeeds_against_a_working_server(ix, monkeypatch, stub_server, capsys):
+    monkeypatch.setattr(ix, "check_connection", ix.real_check_connection)
+    assert _install_at(ix, monkeypatch, stub_server, "sekret") == 0
+    assert f"connected to {stub_server}" in capsys.readouterr().out
+
+
+def test_install_fails_loudly_on_a_wrong_key_and_keeps_the_config(
+    ix, monkeypatch, stub_server
+):
+    monkeypatch.setattr(ix, "check_connection", ix.real_check_connection)
+    with pytest.raises(ix.InstallError, match="rejected the auth key"):
+        _install_at(ix, monkeypatch, stub_server, "wrong")
+
+    # everything stored survives, so fixing the key and rerunning is enough
+    assert ix.env_file().exists()
+    assert ix.security_store.read_text() == "wrong"
+    assert len(_ours(ix, "SessionStart")) == 1
+
+    assert _install_at(ix, monkeypatch, stub_server, "sekret") == 0
+    assert ix.security_store.read_text() == "sekret"
+    assert len(_ours(ix, "SessionStart")) == 1
+
+
+def test_install_fails_loudly_when_the_server_is_unreachable(ix, monkeypatch):
+    monkeypatch.setattr(ix, "check_connection", ix.real_check_connection)
+    with pytest.raises(ix.InstallError, match="cannot reach the server"):
+        _install_at(ix, monkeypatch, "http://127.0.0.1:9", "sekret")
+
+
+def test_install_names_the_ca_problem(ix, monkeypatch):
+    monkeypatch.setattr(ix, "check_connection", ix.real_check_connection)
+
+    def refuse(req: Any, timeout: float) -> Any:
+        raise urllib.error.URLError(
+            ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED: unable to get local issuer")
+        )
+
+    monkeypatch.setattr(ix, "_open", refuse)
+    with pytest.raises(ix.InstallError) as err:
+        _install_at(ix, monkeypatch, "https://context.example.com", "sekret")
+    assert "no CA bundle" in str(err.value)
+    assert "SSL_CERT_FILE=/etc/ssl/cert.pem" in str(err.value)
+
+
+def test_a_failed_install_exits_non_zero_from_the_command_line(ix, monkeypatch, stub_server):
+    env = {**os.environ, "SYNATYX_AUTH_KEY": "wrong"}  # PATH and HOME are the fenced ones
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT), "install", "--url", stub_server],
+        env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert done.returncode == 1
+    assert "rejected the auth key" in done.stderr
+
+
+# ── push failures leave a trace ─────────────────────────────────────────────
+
+def test_a_push_failure_lands_in_push_log_and_exits_zero(ix, monkeypatch, tmp_path):
+    repo = _git_repo(tmp_path / "myrepo")
+    monkeypatch.setenv("SYNATYX_AUTH_KEY", "k")
+    monkeypatch.setenv("SYNATYX_URL", "https://context.example.com")
+
+    def refuse(*a: Any, **k: Any) -> Any:
+        raise urllib.error.URLError(ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED"))
+
+    monkeypatch.setattr(ix, "post", refuse)
+    args = ix.build_parser().parse_args(["push", "--root", str(repo)])
+    assert ix.cmd_push(args) == 0
+
+    line = (ix.cache_dir() / "push.log").read_text().strip()
+    assert str(repo) in line
+    assert "no CA bundle" in line
+    assert line[:4].isdigit()  # starts with a timestamp
+
+
+def test_a_hook_mode_push_failure_is_logged_too(ix, monkeypatch, tmp_path):
+    repo = _git_repo(tmp_path / "myrepo")
+    monkeypatch.setenv("SYNATYX_AUTH_KEY", "k")
+    monkeypatch.setattr(ix, "post", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    assert _push(ix, monkeypatch, {"cwd": str(repo)}) == 0
+    assert "boom" in (ix.cache_dir() / "push.log").read_text()
+
+
+# ── which settings files ────────────────────────────────────────────────────
+
+def _hooked(path: Path) -> bool:
+    return path.exists() and "synatyx-index" in path.read_text()
+
+
+def test_config_dir_env_gives_that_file_plus_dot_claude_when_present(
+    ix, monkeypatch, tmp_path, capsys
+):
+    bridge = tmp_path / "Application Support" / "Kai Bridge" / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(bridge))
+    (ix.home / ".claude").mkdir()
+
+    _install(ix, monkeypatch)
+
+    assert _hooked(bridge / "settings.json")
+    assert _hooked(ix.home / ".claude" / "settings.json")
+    out = capsys.readouterr().out
+    assert str(bridge / "settings.json") in out
+    assert str(ix.home / ".claude" / "settings.json") in out
+
+
+def test_config_dir_env_alone_when_dot_claude_is_absent(ix, monkeypatch, tmp_path):
+    bridge = tmp_path / "bridge"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(bridge))
+    _install(ix, monkeypatch)
+    assert _hooked(bridge / "settings.json")
+    assert not (ix.home / ".claude").exists()
+
+
+def test_without_config_dir_env_it_is_dot_claude_only(ix, monkeypatch):
+    _install(ix, monkeypatch)
+    assert ix.settings_targets() == [ix.home / ".claude" / "settings.json"]
+    assert _hooked(ix.home / ".claude" / "settings.json")
+
+
+def test_config_dir_equal_to_dot_claude_is_written_once(ix, monkeypatch):
+    (ix.home / ".claude").mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(ix.home / ".claude"))
+    assert ix.settings_targets() == [ix.home / ".claude" / "settings.json"]
+
+
+def test_settings_flag_overrides_everything(ix, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "ignored"))
+    (ix.home / ".claude").mkdir()
+    one, two = tmp_path / "a" / "settings.json", tmp_path / "b" / "settings.json"
+
+    _install_at(ix, monkeypatch, URL, "sekret", "--settings", str(one), "--settings", str(two))
+
+    assert _hooked(one) and _hooked(two)
+    assert not (ix.home / ".claude" / "settings.json").exists()
+    assert not (tmp_path / "ignored").exists()
+
+
+def test_every_file_is_merged_idempotently_with_its_own_backup(ix, monkeypatch, tmp_path):
+    bridge = tmp_path / "bridge"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(bridge))
+    (ix.home / ".claude").mkdir()
+    _write_settings(ix, FOREIGN)
+    bridge.mkdir()
+    (bridge / "settings.json").write_text(json.dumps({"theme": "light"}))
+
+    _install(ix, monkeypatch)
+    first = {p: p.read_text() for p in ix.settings_targets()}
+    _install(ix, monkeypatch)
+
+    assert {p: p.read_text() for p in ix.settings_targets()} == first
+    assert json.loads((bridge / "settings.json.bak").read_text()) == {"theme": "light"}
+    assert json.loads(ix.settings_path().with_name("settings.json.bak").read_text()) == FOREIGN
+
+
+def test_uninstall_mirrors_install_across_every_file(ix, monkeypatch, tmp_path):
+    bridge = tmp_path / "bridge"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(bridge))
+    (ix.home / ".claude").mkdir()
+    _write_settings(ix, FOREIGN)
+    _install(ix, monkeypatch)
+
+    assert _uninstall(ix) == 0
+
+    assert _settings(ix) == FOREIGN
+    assert json.loads((bridge / "settings.json").read_text()) == {}
+    assert not _hooked(bridge / "settings.json")
+
+
+def test_uninstall_settings_flag_touches_only_those_files(ix, monkeypatch, tmp_path):
+    one = tmp_path / "a.json"
+    other = tmp_path / "b.json"
+    _install_at(ix, monkeypatch, URL, "sekret", "--settings", str(one), "--settings", str(other))
+
+    _uninstall(ix, "--settings", str(one))
+
+    assert not _hooked(one)
+    assert _hooked(other)

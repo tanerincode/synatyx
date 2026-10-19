@@ -21,8 +21,8 @@
       "properties": {
         "synatyx.url": {
           "type": "string",
-          "default": "https://context.angeneral.com",
-          "description": "Synatyx server base URL"
+          "default": "",
+          "description": "Your Synatyx server URL, e.g. https://synatyx.example.com"
         },
         "synatyx.userId": {
           "type": "string",

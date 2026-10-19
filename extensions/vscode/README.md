@@ -24,9 +24,11 @@ Works in **VS Code** and **Cursor** (Cursor installs VS Code extensions).
 ## Setup (per developer, once)
 
 1. Install the extension (`.vsix` or marketplace, see below)
-2. `Cmd/Ctrl+Shift+P` → **Synatyx: Set Auth Key** → paste the team key
-3. Done. Settings (`synatyx.*`) let you override the server URL, user id,
-   project slug, and the on-save/on-startup behavior.
+2. Set `synatyx.url` to your server, e.g. `https://synatyx.example.com`
+   (there is no default; until it is set the status bar says so)
+3. `Cmd/Ctrl+Shift+P` → **Synatyx: Set Auth Key** → paste the team key
+4. Done. Settings (`synatyx.*`) also let you override the user id, project
+   slug, and the on-save/on-startup behavior.
 
 ## Commands
 
