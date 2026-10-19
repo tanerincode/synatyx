@@ -54,9 +54,16 @@ def _brief_status(raw: str | None) -> tuple[HandoffStatus | None, str | None]:
 
 
 async def _brief_detail(
-    service: HandoffService, user_id: str, handoff_id: str
+    service: HandoffService, user_id: str, handoff_id: str, version: int | None = None
 ) -> dict[str, Any] | None:
-    found = await service.get(user_id, handoff_id, report_limit=_BRIEF_REPORT_LIMIT)
+    """The brief with its reports and version list.
+
+    With `version`, `body` and `version` are that version's; everything else
+    is current. Raises ValueError for a version that does not exist.
+    """
+    found = await service.get(
+        user_id, handoff_id, version=version, report_limit=_BRIEF_REPORT_LIMIT
+    )
     if found is None:
         return None
     h, reports = found
@@ -139,7 +146,19 @@ async def api_brief_detail(request: Request) -> JSONResponse:
     user_id = request.query_params.get("user") or None
     if not user_id:
         return JSONResponse({"error": "user is required"}, status_code=400)
-    detail = await _brief_detail(HandoffService(postgres), user_id, request.path_params["id"])
+    version: int | None = None
+    raw_version = request.query_params.get("version")
+    if raw_version is not None:
+        try:
+            version = int(raw_version)
+        except ValueError:
+            return JSONResponse({"error": f"invalid version {raw_version!r}"}, status_code=400)
+    try:
+        detail = await _brief_detail(
+            HandoffService(postgres), user_id, request.path_params["id"], version
+        )
+    except ValueError:
+        return JSONResponse({"error": f"version {version} not found"}, status_code=404)
     if detail is None:
         return JSONResponse({"error": "brief not found"}, status_code=404)
     return JSONResponse(detail)
