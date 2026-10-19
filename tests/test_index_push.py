@@ -180,3 +180,17 @@ def test_validate_remove_strips_leading_slashes():
 def test_validate_remove_rejects(paths: Any, message: str):
     with pytest.raises(ValueError, match=message):
         validate_remove_paths(paths)
+
+
+async def test_context_index_reports_a_source_missing_on_the_server(tmp_path):
+    server, _, _ = _server()
+    missing = str(tmp_path / "only-on-the-mac")
+
+    result = await server._dispatch(
+        "context_index", {"user_id": "u1", "project": "repo-a", "source": missing}
+    )
+
+    assert result["code"] == "SOURCE_NOT_ON_SERVER"
+    assert missing in result["error"]
+    assert "/index/install" in result["hint"]
+    assert "context_index_push" in result["hint"]

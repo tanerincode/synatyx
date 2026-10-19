@@ -106,11 +106,11 @@ Score a list of context items by relevance to a query.
 
 ### `context_index`
 
-Index a file, directory, or glob into the project's persistent code/doc index (a separate ctx_<slug>__index collection — never mixed into memories). Idempotent: unchanged files are skipped via content hashes, changed files re-embed only their changed chunks, and stale chunks are swept. Respects .gitignore in git repos. Requires an active or explicit project.
+Index a file, directory, or glob into the project's persistent code/doc index (a separate ctx_<slug>__index collection — never mixed into memories). Idempotent: unchanged files are skipped via content hashes, changed files re-embed only their changed chunks, and stale chunks are swept. Respects .gitignore in git repos. Requires an active or explicit project. Reads `source` from the SERVER's disk, not the caller's: against a remote server, push files from your machine with the local indexer (/index/install) or context_index_push instead; a path the server cannot see returns code SOURCE_NOT_ON_SERVER.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `source` | string | yes | Absolute path to a file or directory, or a glob pattern |
+| `source` | string | yes | Absolute path (on the server) to a file or directory, or a glob pattern |
 | `user_id` | string | yes | User identifier |
 | `project` | string | no | Project slug (optional — defaults to the active project; required if none is set) |
 | `force` | boolean | no | Re-embed files even if their hash is unchanged (default: false) |

@@ -4,11 +4,15 @@ import types
 from pathlib import Path
 from typing import Any
 
+import pytest
 from qdrant_client.models import MatchText, MatchValue
 
 from src.core.index import (
+    SOURCE_NOT_ON_SERVER,
+    SOURCE_NOT_ON_SERVER_HINT,
     IndexSearchService,
     IndexService,
+    SourceNotOnServerError,
     chunk_point_id,
 )
 
@@ -392,3 +396,29 @@ def test_discover_projects_workspace_root(tmp_path: Path) -> None:
     (tmp_path / "loose-file.txt").write_text("x")
     found = discover_projects(tmp_path)
     assert [slug for slug, _ in found] == ["proj_a", "proj_b"]
+
+
+async def test_missing_source_raises_typed_error(tmp_path: Path):
+    svc, _, _ = _service(tmp_path)
+    missing = tmp_path / "not-here"
+
+    with pytest.raises(SourceNotOnServerError) as exc:
+        await svc.index(str(missing), "u1")
+
+    assert exc.value.source == str(missing)
+    assert isinstance(exc.value, FileNotFoundError)  # old callers keep working
+    assert "source not found or matched no files" in str(exc.value)
+
+
+async def test_glob_matching_nothing_raises_typed_error(tmp_path: Path):
+    svc, _, _ = _service(tmp_path)
+
+    with pytest.raises(SourceNotOnServerError):
+        await svc.index(str(tmp_path / "*.nothing"), "u1")
+
+
+def test_hint_names_the_install_and_push_routes():
+    assert SOURCE_NOT_ON_SERVER == "SOURCE_NOT_ON_SERVER"
+    assert "/index/install" in SOURCE_NOT_ON_SERVER_HINT
+    assert "SYNATYX_AUTH_KEY" in SOURCE_NOT_ON_SERVER_HINT
+    assert "context_index_push" in SOURCE_NOT_ON_SERVER_HINT

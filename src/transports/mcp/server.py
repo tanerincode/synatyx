@@ -830,13 +830,27 @@ class SynatyxMCPServer:
             return {**pack_result, **_warn}
 
         elif name == "context_index":
-            index_svc, _ = await self._get_index_services(user_id, args.get("project"))
-            index_result = await index_svc.index(
-                source=args["source"],
-                user_id=user_id,
-                force=args.get("force", False),
-                max_files=args.get("max_files", 500),
+            from src.core.index import (
+                SOURCE_NOT_ON_SERVER,
+                SOURCE_NOT_ON_SERVER_HINT,
+                SourceNotOnServerError,
             )
+
+            index_svc, _ = await self._get_index_services(user_id, args.get("project"))
+            try:
+                index_result = await index_svc.index(
+                    source=args["source"],
+                    user_id=user_id,
+                    force=args.get("force", False),
+                    max_files=args.get("max_files", 500),
+                )
+            except SourceNotOnServerError as exc:
+                return {
+                    "error": str(exc),
+                    "code": SOURCE_NOT_ON_SERVER,
+                    "hint": SOURCE_NOT_ON_SERVER_HINT,
+                    **_warn,
+                }
             # A fresh index must be visible to the next context_pack call
             self._pack_svc_cache.pop(storage.collection_name, None)
             return {**index_result.to_dict(), **_warn}
