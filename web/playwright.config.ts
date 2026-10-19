@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Several worktrees run e2e on this machine: give each its own port with PW_PORT.
-const PORT = Number(process.env.PW_PORT ?? 4173);
+// Several worktrees run e2e on this machine: give each its own port with
+// E2E_PORT (PW_PORT is accepted as an alias).
+const PORT = Number(process.env.E2E_PORT ?? process.env.PW_PORT ?? 4173);
 const OUT = `dist-e2e-${PORT}`;
 
 // e2e runs the production build under `vite preview` with every endpoint

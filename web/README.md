@@ -10,7 +10,7 @@ npm run dev             # http://localhost:5173/dashboard/, proxies /dashboard/a
 VITE_MOCK_ALL=1 npm run dev   # no server needed: every endpoint served from src/api/mockData.ts
 npm run check           # typecheck + lint + vitest + build (same as `make web-check`)
 npx playwright test     # e2e against `vite preview` with mocks (same as `make web-e2e`)
-PW_PORT=4184 npx playwright test   # pick your own port: several worktrees share this machine
+E2E_PORT=4184 npx playwright test  # pick your own port: several worktrees share this machine
 ```
 
 ## e2e screenshots
