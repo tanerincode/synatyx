@@ -11,6 +11,7 @@ from src.config import settings
 from src.core.alternatives import AlternativesService
 from src.core.brief import BriefService
 from src.core.budget import BudgetManager, estimate_tokens
+from src.core.handoff import HandoffService
 from src.core.ingest import IngestService
 from src.core.project import ProjectManager
 from src.core.relation import RelationService
@@ -21,6 +22,7 @@ from src.core.store import StoreService
 from src.core.summarize import SummarizeService
 from src.core.tracking import SessionTracker
 from src.core.usage import UsageRecorder, usage_begin, usage_end
+from src.models.handoff import Handoff, HandoffReport, HandoffStatus
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
@@ -28,6 +30,56 @@ from src.storage.redis import RedisStorage
 from src.transports.mcp.tools import TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
+
+
+def _enum_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def _handoff_meta(h: Handoff) -> dict[str, Any]:
+    """Handoff metadata for tool results. Never carries the body."""
+    return {
+        "id": h.id,
+        "project": h.project,
+        "slug": h.slug,
+        "title": h.title,
+        "assignee": h.assignee,
+        "status": _enum_value(h.status),
+        "version": h.version,
+        "parent_id": h.parent_id,
+        "task_ids": list(h.task_ids),
+        "created_by": h.created_by,
+        "created_at": h.created_at.isoformat(),
+        "updated_at": h.updated_at.isoformat(),
+    }
+
+
+def _handoff_report(r: HandoffReport) -> dict[str, Any]:
+    return {
+        "id": r.id,
+        "handoff_id": r.handoff_id,
+        "agent": r.agent,
+        "text": r.text,
+        "status_after": _enum_value(r.status_after) if r.status_after else None,
+        "created_at": r.created_at.isoformat(),
+    }
+
+
+def _handoff_status(value: Any) -> HandoffStatus | None:
+    if value is None or value == "":
+        return None
+    try:
+        return HandoffStatus(value)
+    except ValueError:
+        valid = ", ".join(s.value for s in HandoffStatus)
+        raise ValueError(f"Invalid status {value!r}; expected one of: {valid}") from None
+
+
+def _handoff_project(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        from src.core.project import slugify
+        return slugify(value)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -530,8 +582,99 @@ class SynatyxMCPServer:
                 ],
             )
 
+    async def _dispatch_handoff(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """context_handoff_* tools. Postgres only; failures come back as error dicts."""
+        user_id = args.get("user_id", "")
+        svc = HandoffService(self._postgres)
+        project = _handoff_project(args.get("project"))
+        try:
+            if name == "context_handoff_create":
+                if not project:
+                    return {"error": "context_handoff_create requires the project argument"}
+                created = await svc.create(
+                    user_id,
+                    project,
+                    args["title"],
+                    args["body"],
+                    assignee=args.get("assignee"),
+                    slug=args.get("slug"),
+                    parent_id=args.get("parent_id"),
+                    status=_handoff_status(args.get("status")),
+                    task_ids=args.get("task_ids"),
+                    created_by=args.get("created_by") or user_id,
+                )
+                return {"handoff": _handoff_meta(created)}
+
+            if name == "context_handoff_get":
+                if not args.get("id") and not (project and args.get("slug")):
+                    return {"error": "Provide id, or project and slug"}
+                found = await svc.get(
+                    user_id,
+                    args.get("id"),
+                    project=project,
+                    slug=args.get("slug"),
+                    version=args.get("version"),
+                )
+                if found is None:
+                    return {"error": "Handoff not found"}
+                handoff, reports = found
+                return {
+                    "handoff": {**_handoff_meta(handoff), "body": handoff.body},
+                    "reports": [_handoff_report(r) for r in reports[:10]],
+                }
+
+            if name in ("context_handoff_list", "context_handoff_mine"):
+                if name == "context_handoff_mine":
+                    handoffs = await svc.mine(user_id, args["assignee"], project=project)
+                else:
+                    handoffs = await svc.list(
+                        user_id,
+                        project=project,
+                        assignee=args.get("assignee"),
+                        status=_handoff_status(args.get("status")),
+                    )
+                return {"handoffs": [_handoff_meta(h) for h in handoffs], "count": len(handoffs)}
+
+            if name == "context_handoff_update":
+                updated = await svc.update(
+                    user_id,
+                    args["id"],
+                    body=args.get("body"),
+                    title=args.get("title"),
+                    status=_handoff_status(args.get("status")),
+                    assignee=args.get("assignee"),
+                    author=args.get("author") or user_id,
+                )
+                if updated is None:
+                    return {"error": f"Handoff {args['id']!r} not found"}
+                return {"handoff": _handoff_meta(updated)}
+
+            if name == "context_handoff_report":
+                report = await svc.report(
+                    user_id,
+                    args["id"],
+                    args["agent"],
+                    args["text"],
+                    status=_handoff_status(args.get("status")),
+                )
+                if report is None:
+                    return {"error": f"Handoff {args['id']!r} not found"}
+                after = await svc.get(user_id, args["id"])
+                return {
+                    "report": _handoff_report(report),
+                    "handoff": _handoff_meta(after[0]) if after else None,
+                }
+        except ValueError as exc:
+            return {"error": str(exc)}
+        except KeyError as exc:
+            return {"error": f"Missing required argument {exc.args[0]!r}"}
+        return {"error": f"Unknown handoff tool {name!r}"}
+
     async def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         user_id = args.get("user_id", "")
+
+        if name.startswith("context_handoff_"):
+            return await self._dispatch_handoff(name, args)
 
         # ── Project management (no storage needed) ──────────────────────────
         if name == "context_set_project":
@@ -603,6 +746,7 @@ class SynatyxMCPServer:
                 session_id=args.get("session_id"),
                 max_tokens=args.get("max_tokens", 2000),
                 recent_days=args.get("recent_days", 7),
+                assignee=args.get("assignee"),
             )
             return {
                 "project": slug,
@@ -1060,9 +1204,16 @@ class SynatyxMCPServer:
                 description=args.get("description", ""),
                 priority=TaskPriority(args.get("priority", "medium")),
                 project=args.get("project"),
+                assignee=args.get("assignee"),
             )
             saved = await self._postgres.task_add(task)
-            return {"task_id": saved.id, "title": saved.title, "status": saved.status, "priority": saved.priority}
+            return {
+                "task_id": saved.id,
+                "title": saved.title,
+                "status": saved.status,
+                "priority": saved.priority,
+                "assignee": saved.assignee,
+            }
 
         elif name == "context_task_list":
             from src.models.task import TaskPriority, TaskStatus
@@ -1073,6 +1224,7 @@ class SynatyxMCPServer:
                 status=TaskStatus(status_str) if status_str else None,
                 priority=TaskPriority(priority_str) if priority_str else None,
                 project=args.get("project"),
+                assignee=args.get("assignee"),
                 limit=args.get("limit", 50),
             )
             return {
@@ -1084,6 +1236,7 @@ class SynatyxMCPServer:
                         "status": t.status,
                         "priority": t.priority,
                         "project": t.project,
+                        "assignee": t.assignee,
                         "created_at": t.created_at.isoformat(),
                     }
                     for t in tasks
@@ -1102,10 +1255,17 @@ class SynatyxMCPServer:
                 priority=TaskPriority(priority_str) if priority_str else None,
                 title=args.get("title"),
                 description=args.get("description"),
+                assignee=args.get("assignee"),
             )
             if not updated:
                 return {"error": f"Task {args['task_id']!r} not found"}
-            return {"task_id": updated.id, "title": updated.title, "status": updated.status, "updated_at": updated.updated_at.isoformat()}
+            return {
+                "task_id": updated.id,
+                "title": updated.title,
+                "status": updated.status,
+                "assignee": updated.assignee,
+                "updated_at": updated.updated_at.isoformat(),
+            }
 
         elif name == "context_skill_store":
             svc = await self._get_skill_service(user_id, args.get("project"))
