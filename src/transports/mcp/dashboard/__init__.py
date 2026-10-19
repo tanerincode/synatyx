@@ -19,7 +19,7 @@ from src.transports.mcp.dashboard.hygiene import api_hygiene
 from src.transports.mcp.dashboard.indexes import api_index_chunks, api_index_graph, api_indexes
 from src.transports.mcp.dashboard.items import api_item_action, api_item_detail, api_items
 from src.transports.mcp.dashboard.overview import api_overview
-from src.transports.mcp.dashboard.page import dashboard_page
+from src.transports.mcp.dashboard.page import dashboard_page, dashboard_spa
 from src.transports.mcp.dashboard.skills import api_skill_detail, api_skills
 from src.transports.mcp.dashboard.tasks import api_task_update, api_tasks
 from src.transports.mcp.dashboard.usage import api_usage
@@ -46,6 +46,9 @@ DASHBOARD_ROUTES: list[Route] = [
     Route("/dashboard/api/skills", api_skills),
     Route("/dashboard/api/skills/{slug}", api_skill_detail),
     Route("/dashboard/api/tasks/{id}", api_task_update, methods=["PATCH"]),
+    # Web app: assets + client-side routes. Must stay after every /dashboard/api
+    # route; it refuses anything under api itself.
+    Route("/dashboard/{path:path}", dashboard_spa, methods=["GET", "HEAD"]),
 ]
 
 __all__ = [
@@ -70,4 +73,5 @@ __all__ = [
     "api_usage",
     "api_users",
     "dashboard_page",
+    "dashboard_spa",
 ]
