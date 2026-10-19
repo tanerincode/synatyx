@@ -370,3 +370,12 @@ async def test_section_budget_sums_to_one() -> None:
     from src.core.brief import SECTION_BUDGET
 
     assert abs(sum(SECTION_BUDGET.values()) - 1.0) < 1e-9
+
+
+async def test_brief_open_handoffs_budget_truncates_but_keeps_one() -> None:
+    handoffs = [_handoff(f"slug-{i}") for i in range(40)]
+    svc = _service([], handoffs=handoffs)
+    full = await svc.brief("u1", project="synatyx", assignee="w3", max_tokens=100_000)
+    small = await svc.brief("u1", project="synatyx", assignee="w3", max_tokens=100)
+    assert len(full["open_handoffs"]) == 40
+    assert 1 <= len(small["open_handoffs"]) < 40

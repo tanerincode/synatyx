@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import functools
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.core.budget import estimate_tokens
 from src.models.context import ContextItem
+from src.models.handoff import OPEN_HANDOFF_STATUSES
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
@@ -197,8 +199,6 @@ class BriefService:
         self, user_id: str, project: str | None, assignee: str, budget_tokens: int
     ) -> tuple[list[dict[str, Any]], int]:
         """The caller's open handoffs: metadata only, never the body."""
-        from src.models.handoff import OPEN_HANDOFF_STATUSES
-
         try:
             handoffs = await self._postgres.handoff_list(
                 user_id,
@@ -213,16 +213,15 @@ class BriefService:
         entries: list[dict[str, Any]] = []
         used = 0
         for h in handoffs:
-            status = h.status.value if hasattr(h.status, "value") else h.status
             entry = {
                 "id": h.id,
                 "slug": h.slug,
                 "title": h.title,
-                "status": status,
+                "status": h.status.value,
                 "version": h.version,
                 "updated_at": h.updated_at.isoformat(),
             }
-            tokens = estimate_tokens(h.slug + h.title)
+            tokens = estimate_tokens(json.dumps(entry))
             if used + tokens > budget_tokens and entries:
                 break
             entries.append(entry)
