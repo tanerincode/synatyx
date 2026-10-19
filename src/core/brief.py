@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import functools
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.core.budget import estimate_tokens
@@ -35,7 +36,7 @@ _SCAN_LIMIT = 500  # max items scrolled per collection when composing a brief
 
 def _created_at(item: ContextItem) -> datetime:
     ts = item.created_at
-    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
 
 
 def _dump(item: ContextItem, max_chars: int | None = None) -> dict[str, Any]:
@@ -75,7 +76,7 @@ def _fit(items: list[ContextItem], budget_tokens: int) -> tuple[list[dict[str, A
     entries = [
         BudgetEntry(
             tokens=item.token_estimate,
-            payload=(lambda i=item: _dump(i)),
+            payload=functools.partial(_dump, item),
             raw_content=item.content,
         )
         for item in items
@@ -119,7 +120,7 @@ class BriefService:
             budgets["project_knowledge"] = int(
                 max_tokens * (SECTION_BUDGET["project_knowledge"] + SECTION_BUDGET["open_handoffs"])
             )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         recent_cutoff = now - timedelta(days=recent_days)
 
         l4_items = await self._l4_storage.list_items(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.core.brief import BriefService
@@ -103,7 +103,7 @@ def _item(
         "user_id": user_id,
         "content": content,
         "memory_layer": layer,
-        "created_at": datetime.now(timezone.utc) - timedelta(days=days_old),
+        "created_at": datetime.now(UTC) - timedelta(days=days_old),
     }
     base.update(overrides)
     return ContextItem(**base)
