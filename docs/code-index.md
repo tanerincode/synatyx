@@ -59,9 +59,66 @@ File/chunk counts, per-language breakdown, last index time, plus `stale_files`
 
 ## Automatic indexing
 
-Two mechanisms keep indexes fresh without anyone calling `context_index`. Both
+These mechanisms keep indexes fresh without anyone calling `context_index`. Both
 write only to `ctx_<slug>__index` — memories and code stay separated by
 construction.
+
+### One install per Mac — Claude Code keeps the index fresh
+
+Nobody calls a tool or runs a command after this. Once per machine:
+
+```bash
+python scripts/index_project.py install --url https://context.example.com
+# prompts for the auth key, or reads $SYNATYX_AUTH_KEY
+```
+
+The server also serves the same script, so a machine without a checkout can
+fetch it from there (`/index/install`).
+
+What `install` does, and nothing else:
+
+- stores the key in the **macOS Keychain** (service `synatyx`, account = the
+  URL); on other systems in `~/.config/synatyx/key` with mode 600;
+- writes `~/.config/synatyx/env` (`SYNATYX_URL`, `SYNATYX_USER_ID`);
+- copies the script to `~/.local/bin/synatyx-index`;
+- merges two hooks into `~/.claude/settings.json`, leaving every other setting
+  and hook untouched, writing atomically and keeping the previous file as
+  `settings.json.bak`.
+
+Running it again changes nothing. The hooks:
+
+| Hook | Command | Effect |
+| --- | --- | --- |
+| `SessionStart` | `synatyx-index push --from-hook --background` | Diff + push the repo you opened. |
+| `PostToolUse`, matcher `Edit\|Write\|MultiEdit` | `synatyx-index push --from-hook --background --debounce 20` | Same, after Claude edits a file. |
+
+`--from-hook` reads the hook event on stdin and finds the git repo from the
+file or `cwd`; outside a git repo it does nothing. `--background` detaches and
+returns at once, so a session never waits on it, and it always exits 0. The
+push is a full diff against the server (one small request when nothing
+changed), so it does not matter which file triggered it. `--debounce 20`
+keeps a burst of edits to one push per 20 seconds: one run starts at once, at
+most one more waits for the window to end, the rest return immediately.
+Failures are written to `~/.cache/synatyx/index.log`, not to the session.
+
+The project name is the repository's folder name, and the key is looked up in
+this order: `$SYNATYX_AUTH_KEY`, the Keychain, the key file.
+
+**Opt out of a repo:** put an empty `.synatyx-noindex` file in its root, or set
+`SYNATYX_INDEX=0`; `push` then does nothing.
+
+**Worktrees:** a git worktree is indexed under the main working tree's folder
+name (not its own), pushing the worktree's own files, so agent worktrees never
+create extra index collections.
+
+**Limit:** only Claude Code sessions trigger pushes. Edits made any other way
+(an editor, `git pull`, a formatter) are picked up at the next session start.
+
+**Uninstall:** `synatyx-index uninstall` removes our hooks (matched by
+`synatyx-index` in the command), the env file and the stored key, and leaves
+the binary; add `--purge` to remove it too.
+
+The VS Code / Cursor extension is deprecated in favour of this installer.
 
 ### Push from a service — `context_index_push` / `context_index_remove`
 

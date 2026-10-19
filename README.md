@@ -62,7 +62,7 @@ Your AI **remembers** what you decided last week, **finds** the exact function y
 `context_pack` takes the task you're about to do and returns a single prompt-ready block: relevant memories with their relations, pinned decisions, dead ends to avoid, open tasks, matching skills, and code hits — token-budgeted, with unspent budget reallocated to the fullest sections. → [docs](docs/context-pack.md)
 
 **🗂️ Persistent code & doc index**
-Per-project, idempotent, `.gitignore`-aware indexing into a dedicated collection. Hybrid search fuses dense vectors with exact-symbol and full-text passes, so `get_storage_for` is findable even when embeddings miss it. → [docs](docs/code-index.md)
+Per-project, idempotent, `.gitignore`-aware indexing into a dedicated collection. Hybrid search fuses dense vectors with exact-symbol and full-text passes, so `get_storage_for` is findable even when embeddings miss it. One command per Mac (`scripts/index_project.py install`) and Claude Code keeps it fresh by itself. → [docs](docs/code-index.md#automatic-indexing)
 
 **🧠 Persistent memory across sessions**
 4-layer model (working / episodic / semantic / procedural) with hybrid dense + BM25 + MMR retrieval. Empty results come back with diagnostics explaining why.
