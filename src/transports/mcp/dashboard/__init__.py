@@ -19,7 +19,8 @@ from src.transports.mcp.dashboard.indexes import api_index_chunks, api_index_gra
 from src.transports.mcp.dashboard.items import api_items
 from src.transports.mcp.dashboard.overview import api_overview
 from src.transports.mcp.dashboard.page import dashboard_page
-from src.transports.mcp.dashboard.tasks import api_tasks
+from src.transports.mcp.dashboard.skills import api_skill_detail, api_skills
+from src.transports.mcp.dashboard.tasks import api_task_update, api_tasks
 from src.transports.mcp.dashboard.usage import api_usage
 from src.transports.mcp.dashboard.users import api_users
 
@@ -38,6 +39,9 @@ DASHBOARD_ROUTES: list[Route] = [
     Route("/dashboard/api/briefs", api_brief_create, methods=["POST"]),
     Route("/dashboard/api/briefs/{id}", api_brief_detail),
     Route("/dashboard/api/briefs/{id}", api_brief_update, methods=["PATCH"]),
+    Route("/dashboard/api/skills", api_skills),
+    Route("/dashboard/api/skills/{slug}", api_skill_detail),
+    Route("/dashboard/api/tasks/{id}", api_task_update, methods=["PATCH"]),
 ]
 
 __all__ = [
@@ -52,6 +56,9 @@ __all__ = [
     "api_indexes",
     "api_items",
     "api_overview",
+    "api_skill_detail",
+    "api_skills",
+    "api_task_update",
     "api_tasks",
     "api_usage",
     "api_users",
