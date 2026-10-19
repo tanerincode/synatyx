@@ -1,3 +1,17 @@
+# ── Stage 0: web dashboard (Vite build) ───────────────────────────────────────
+# Node lives only in this stage; the runtime image stays python:3.12-slim and
+# receives the static files in web/dist.
+FROM node:22-slim AS web
+
+WORKDIR /web
+
+# Cache layer: only re-install when the lockfile changes
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY web/ ./
+RUN npm run build
+
 # ── Stage 1: deps ────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS deps
 
@@ -35,6 +49,9 @@ COPY --from=deps /app/.venv /app/.venv
 
 # Copy application source
 COPY --chown=synatyx:synatyx . .
+
+# Built dashboard (static files, served at /dashboard)
+COPY --from=web --chown=synatyx:synatyx /web/dist /app/web/dist
 
 # Build identity — surfaced on /health and the dashboard header
 ARG GIT_COMMIT=unknown

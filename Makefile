@@ -32,7 +32,8 @@ help:
 	@echo "    make format      Run ruff formatter"
 	@echo "    make typecheck   Run mypy"
 	@echo "    make test        Run pytest"
-	@echo "    make check       lint + typecheck + test"
+	@echo "    make web-check   Dashboard (web/): typecheck + lint + vitest + build"
+	@echo "    make check       lint + typecheck + test (+ web-check when web/ and node exist)"
 	@echo ""
 
 # ── Run ───────────────────────────────────────────────────────────────────────
@@ -104,5 +105,34 @@ test-integration:
 	$(PYTHON) -m pytest tests/integration -v
 
 .PHONY: check
-check: lint typecheck test
+check: lint typecheck test web-check-if-present
+
+# ── Web dashboard (web/) ──────────────────────────────────────────────────────
+# Node is only needed here and in the Dockerfile's build stage. `check` runs
+# web-check only when web/ exists and node is on PATH, so Python-only machines
+# keep a green `make check`.
+
+WEB := web
+
+.PHONY: web-install
+web-install:
+	@if [ ! -f $(WEB)/node_modules/.package-lock.json ] || [ $(WEB)/package-lock.json -nt $(WEB)/node_modules/.package-lock.json ]; then \
+		cd $(WEB) && npm ci --no-audit --no-fund; \
+	fi
+
+.PHONY: web-check
+web-check: web-install
+	cd $(WEB) && npm run typecheck && npm run lint && npm run test && npm run build
+
+.PHONY: web-check-if-present
+web-check-if-present:
+	@if [ -d $(WEB) ] && command -v node >/dev/null 2>&1; then \
+		$(MAKE) --no-print-directory web-check; \
+	else \
+		echo "web-check skipped: no $(WEB)/ or no node on PATH"; \
+	fi
+
+.PHONY: web-e2e
+web-e2e: web-install
+	cd $(WEB) && npx playwright test
 

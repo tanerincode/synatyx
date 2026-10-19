@@ -81,17 +81,9 @@ What `install` does, and nothing else:
   URL); on other systems in `~/.config/synatyx/key` with mode 600;
 - writes `~/.config/synatyx/env` (`SYNATYX_URL`, `SYNATYX_USER_ID`);
 - copies the script to `~/.local/bin/synatyx-index`;
-- merges two hooks into Claude Code's `settings.json`, leaving every other
-  setting and hook untouched, writing atomically and keeping each previous file
-  as `settings.json.bak`. Which files: `$CLAUDE_CONFIG_DIR/settings.json` when
-  that variable is set (a session started with it never reads `~/.claude`), plus
-  `~/.claude/settings.json` when `~/.claude` exists (or when the variable is
-  unset). `--settings PATH` (repeatable) replaces that default. Every file
-  written is printed;
-- finishes with one real, authenticated request to the server. If the URL, the
-  key or the TLS trust is wrong, `install` says which (a Python with no CA
-  bundle is named as such), exits non-zero and **leaves the stored config in
-  place**, so fixing the cause and running it again is enough.
+- merges two hooks into `~/.claude/settings.json`, leaving every other setting
+  and hook untouched, writing atomically and keeping the previous file as
+  `settings.json.bak`.
 
 Running it again changes nothing. The hooks:
 
@@ -107,14 +99,7 @@ push is a full diff against the server (one small request when nothing
 changed), so it does not matter which file triggered it. `--debounce 20`
 keeps a burst of edits to one push per 20 seconds: one run starts at once, at
 most one more waits for the window to end, the rest return immediately.
-Failures never reach the session; each one is appended, with a timestamp and
-the repo, to `~/.cache/synatyx/push.log`. Look there first if the index is not
-updating.
-
-**TLS:** every request verifies the server's certificate (never disabled). A
-python.org framework Python ships no CA bundle, so the script falls back to the
-system bundle (`/etc/ssl/cert.pem`), then `certifi` if importable; setting
-`SSL_CERT_FILE` / `SSL_CERT_DIR` is honoured first.
+Failures are written to `~/.cache/synatyx/index.log`, not to the session.
 
 The project name is the repository's folder name, and the key is looked up in
 this order: `$SYNATYX_AUTH_KEY`, the Keychain, the key file.
@@ -130,9 +115,8 @@ create extra index collections.
 (an editor, `git pull`, a formatter) are picked up at the next session start.
 
 **Uninstall:** `synatyx-index uninstall` removes our hooks (matched by
-`synatyx-index` in the command) from the same set of settings files `install`
-writes (pass the same `--settings` if you used it), the env file and the stored
-key, and leaves the binary; add `--purge` to remove it too.
+`synatyx-index` in the command), the env file and the stored key, and leaves
+the binary; add `--purge` to remove it too.
 
 The VS Code / Cursor extension is deprecated in favour of this installer.
 
