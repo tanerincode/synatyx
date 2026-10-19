@@ -1,4 +1,3 @@
-import pytest
 from src.core.mmr import apply_mmr, diversify_by_source
 from src.models.context import ScoredContextItem
 from src.models.memory_layer import MemoryLayer

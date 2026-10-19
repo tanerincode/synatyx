@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import math
-import unicodedata
 import re
+import unicodedata
 
 # BM25 hyperparameters (from CTX-EG defaults)
 K1 = 1.5   # Term frequency saturation

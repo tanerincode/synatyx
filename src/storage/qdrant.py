@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 from typing import Any
 
 from qdrant_client import AsyncQdrantClient
@@ -374,10 +375,10 @@ class QdrantStorage:
 
     async def touch(self, item_ids: list[str]) -> None:
         """Update last_accessed_at for retrieved items — used by access tracking."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         if not item_ids:
             return
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         try:
             await self._client.set_payload(
                 collection_name=self._collection_name,
@@ -389,10 +390,10 @@ class QdrantStorage:
 
     async def deprecate(self, item_id: str, reason: str | None = None) -> None:
         """Mark a point as deprecated by updating its payload in-place."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         payload: dict[str, Any] = {
             "is_deprecated": True,
-            "deprecated_at": datetime.now(timezone.utc).isoformat(),
+            "deprecated_at": datetime.now(UTC).isoformat(),
         }
         if reason:
             payload["deprecated_reason"] = reason

@@ -1,9 +1,10 @@
 import pytest
+
 from src.core.budget import (
-    BudgetManager,
-    BudgetAllocation,
-    LAYER_ALLOCATIONS,
     FIXED_ALLOCATIONS,
+    LAYER_ALLOCATIONS,
+    BudgetAllocation,
+    BudgetManager,
 )
 from src.models.context import ContextItem
 from src.models.memory_layer import MemoryLayer

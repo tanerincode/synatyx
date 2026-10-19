@@ -1,5 +1,6 @@
 import pytest
-from src.core.chunker import RecursiveChunker, Chunk, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
+
+from src.core.chunker import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, Chunk, RecursiveChunker
 
 
 @pytest.fixture

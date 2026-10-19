@@ -46,9 +46,9 @@ async def _connect_with_retry(label: str, connect_fn, *, max_attempts: int = 5, 
 
 async def _run_mcp_stdio() -> None:
     from src.config import settings
+    from src.storage.postgres import PostgresStorage
     from src.storage.qdrant import QdrantStorage
     from src.storage.redis import RedisStorage
-    from src.storage.postgres import PostgresStorage
     from src.transports.mcp.server import SynatyxMCPServer
 
     qdrant = QdrantStorage(host=settings.qdrant.host, port=settings.qdrant.port, collection_name=settings.qdrant.collection_name)
@@ -66,7 +66,7 @@ async def _run_mcp_stdio() -> None:
 
 
 def main() -> None:
-    from src.config import settings, RunMode
+    from src.config import RunMode, settings
 
     mode = settings.run_mode
 
@@ -88,10 +88,10 @@ def main() -> None:
 
 
 async def _run_gc() -> None:
+    from src.config import settings
     from src.core.consolidate import Consolidator
     from src.core.gc import GarbageCollector
     from src.core.observer import RelationObserver
-    from src.config import settings
     from src.storage.postgres import PostgresStorage
     from src.storage.qdrant import QdrantStorage
 

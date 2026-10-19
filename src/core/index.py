@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ from qdrant_client.models import (
     Range,
 )
 
-from src.core.bm25 import BM25Index, STOP_WORDS
+from src.core.bm25 import STOP_WORDS, BM25Index
 from src.core.chunker import RecursiveChunker
 from src.core.embedder import get_embedder
 from src.core.staleness import _hash_file
@@ -533,7 +533,7 @@ class IndexService:
 
             # Embed only new/changed chunks (compare against stored hashes)
             existing = await self._existing_chunk_hashes(user_id, rel_path)
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             total = len(chunks)
             to_embed: list[int] = []
             for i, c in enumerate(chunks):

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from src.config import TrackingSettings
 from src.models.memory_layer import MemoryLayer
@@ -78,7 +79,7 @@ def _parse_ts(raw: str | None) -> datetime | None:
         return None
     try:
         ts = datetime.fromisoformat(raw)
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -166,7 +167,7 @@ class SessionTracker:
             event = build_trace_event(tool, args, result)
             if event is None:
                 return
-            event["ts"] = datetime.now(timezone.utc).isoformat()
+            event["ts"] = datetime.now(UTC).isoformat()
             scope = args.get("session_id") or args.get("project") or "default"
             await self._redis.trace_append(
                 user_id,
@@ -189,7 +190,7 @@ class SessionTracker:
         if not self._settings.enabled:
             return 0
 
-        idle_cutoff = datetime.now(timezone.utc) - timedelta(
+        idle_cutoff = datetime.now(UTC) - timedelta(
             minutes=self._settings.idle_minutes
         )
         compacted = 0

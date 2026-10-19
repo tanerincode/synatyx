@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from src.core.budget import BudgetEntry, SectionBudgeter, estimate_tokens
@@ -56,7 +56,7 @@ _SECTION_TITLES: dict[str, str] = {
 
 def _created_at(item: ContextItem) -> datetime:
     ts = item.created_at
-    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
 
 
 def _dump_pack(item: ContextItem, score: float | None = None) -> dict[str, Any]:
@@ -460,7 +460,7 @@ def render_pack(
     Empty sections are omitted; every item carries provenance markers so the
     consuming agent can weigh trust (user-stated vs inferred vs ingested) and
     spot stale facts."""
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     header = (
         f"<!-- synatyx context_pack | project: {project or 'active'} "
         f"| ~{token_estimate} tokens | {today} -->"

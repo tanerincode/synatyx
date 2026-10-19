@@ -6,7 +6,6 @@ from src.config import GCSettings
 from src.core.gc import GarbageCollector
 from src.core.staleness import annotate_staleness, check_stale_files, compute_file_hashes
 
-
 # ── file hashes ──────────────────────────────────────────────────────────────
 
 def test_compute_hashes_and_fresh_check(tmp_path: Path) -> None:

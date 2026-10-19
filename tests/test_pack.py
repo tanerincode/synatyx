@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.core.pack import PackService, render_pack
@@ -30,7 +30,7 @@ def _scored(
         "content": content,
         "memory_layer": layer,
         "score": score,
-        "created_at": datetime.now(timezone.utc) - timedelta(days=1),
+        "created_at": datetime.now(UTC) - timedelta(days=1),
     }
     base.update(overrides)
     return ScoredContextItem(**base)
