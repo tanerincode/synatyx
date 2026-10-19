@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    ForeignKey,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -17,12 +17,11 @@ from sqlalchemy import (
     func,
     or_,
     select,
-    text,
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.config import settings
@@ -31,7 +30,6 @@ from src.models.relation import MemoryRelation
 from src.models.session import KeyEntity, Session, SessionStatus
 from src.models.skill import Skill, _slugify
 from src.models.task import Task, TaskPriority, TaskStatus
-
 
 # ---------------------------------------------------------------------------
 # ORM Base & Table Models
@@ -48,12 +46,16 @@ class SessionRow(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    key_entities: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    key_entities: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     summarized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -61,9 +63,11 @@ class UserProfileRow(Base):
     __tablename__ = "user_profiles"
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
-    profile: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    profile: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class AuditLogRow(Base):
@@ -72,7 +76,7 @@ class AuditLogRow(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     action: Mapped[str] = mapped_column(String, nullable=False)
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -84,11 +88,13 @@ class SkillRow(Base):
     slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    frontmatter: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    frontmatter: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class GCLogRow(Base):
@@ -99,7 +105,8 @@ class GCLogRow(Base):
     item_id: Mapped[str] = mapped_column(String, nullable=False)
     collection: Mapped[str] = mapped_column(String, nullable=False)
     memory_layer: Mapped[str] = mapped_column(String, nullable=False)
-    action: Mapped[str] = mapped_column(String, nullable=False, index=True)  # "deprecated" | "deleted"
+    # "deprecated" | "deleted"
+    action: Mapped[str] = mapped_column(String, nullable=False, index=True)
     reason: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -116,7 +123,9 @@ class TaskRow(Base):
     project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     assignee: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class HandoffRow(Base):
@@ -183,7 +192,9 @@ class ToolUsageRow(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     embedding_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class OAuthClientRow(Base):
@@ -224,7 +235,9 @@ class MemoryRelationRow(Base):
     target_item_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     relation_type: Mapped[str] = mapped_column(String, nullable=False, default="related_to")
     project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -287,7 +300,7 @@ class PostgresStorage:
             row.token_count = session.token_count
             row.message_count = session.message_count
             row.metadata_ = session.metadata
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             row.summarized_at = session.summarized_at
             await db.commit()
 
@@ -307,7 +320,7 @@ class PostgresStorage:
             row = await db.get(UserProfileRow, user_id)
             if row:
                 row.profile = profile
-                row.updated_at = datetime.now(timezone.utc)
+                row.updated_at = datetime.now(UTC)
             else:
                 db.add(UserProfileRow(user_id=user_id, profile=profile))
             await db.commit()
@@ -770,6 +783,7 @@ class PostgresStorage:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Aggregated usage grouped by tool, project, or day."""
+        key: Any
         if group_by == "project":
             key = func.coalesce(ToolUsageRow.project, "")
         elif group_by == "day":
@@ -811,10 +825,12 @@ class PostgresStorage:
                 delete(ToolUsageRow).where(ToolUsageRow.created_at < before)
             )
             await session.commit()
-            return result.rowcount or 0
+            return result.rowcount or 0  # type: ignore[attr-defined]  # CursorResult at runtime
 
     @staticmethod
-    def _usage_filters(stmt, user_id: str | None, project: str | None, since: datetime | None):
+    def _usage_filters(
+        stmt: Any, user_id: str | None, project: str | None, since: datetime | None
+    ) -> Any:
         if user_id:
             stmt = stmt.where(ToolUsageRow.user_id == user_id)
         if project:
@@ -990,7 +1006,7 @@ class PostgresStorage:
                     stmt = stmt.where(MemoryRelationRow.relation_type == relation_type)
             result = await session.execute(stmt)
             await session.commit()
-            return result.rowcount or 0
+            return result.rowcount or 0  # type: ignore[attr-defined]  # CursorResult at runtime
 
     async def relation_delete_for_items(self, item_ids: list[str]) -> int:
         """Remove all edges touching the given items — GC/hard-delete cleanup.
@@ -1007,7 +1023,7 @@ class PostgresStorage:
             ))
             result = await session.execute(stmt)
             await session.commit()
-            return result.rowcount or 0
+            return result.rowcount or 0  # type: ignore[attr-defined]  # CursorResult at runtime
 
     @staticmethod
     def _row_to_relation(row: MemoryRelationRow) -> MemoryRelation:
@@ -1041,7 +1057,9 @@ class PostgresStorage:
             await session.refresh(row)
             return self._row_to_skill(row)
 
-    async def skill_get_by_name(self, name: str, user_id: str, project: str | None = None) -> Skill | None:
+    async def skill_get_by_name(
+        self, name: str, user_id: str, project: str | None = None
+    ) -> Skill | None:
         async with self._session_factory() as session:
             slug = _slugify(name)
             stmt = select(SkillRow).where(
@@ -1061,7 +1079,9 @@ class PostgresStorage:
             return self._row_to_skill(row)
         return None
 
-    async def skill_list(self, user_id: str, project: str | None = None, limit: int = 50) -> list[Skill]:
+    async def skill_list(
+        self, user_id: str, project: str | None = None, limit: int = 50
+    ) -> list[Skill]:
         async with self._session_factory() as session:
             stmt = select(SkillRow).where(SkillRow.user_id == user_id)
             if project is not None:

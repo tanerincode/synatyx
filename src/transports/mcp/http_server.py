@@ -4,9 +4,10 @@ import hmac
 import logging
 import os
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any
 
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import ProviderTokenVerifier, TokenVerifier
@@ -15,7 +16,7 @@ from starlette.applications import Starlette
 from starlette.authentication import AuthCredentials
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -231,7 +232,7 @@ async def lifespan(_app: Starlette) -> AsyncIterator[None]:
 # Health endpoint
 # ---------------------------------------------------------------------------
 
-def server_info() -> dict:
+def server_info() -> dict[str, Any]:
     """Build/runtime identity shown on /health and the dashboard — makes it
     obvious at a glance which build (local vs prod) a server is running."""
     from src.transports.mcp.tools import TOOL_DEFINITIONS
@@ -295,7 +296,7 @@ async def capture(request: Request) -> JSONResponse:
 # Used by scripts/index_project.py; protected by the admin-key middleware.
 # ---------------------------------------------------------------------------
 
-async def _index_service_from(request: Request):
+async def _index_service_from(request: Request) -> tuple[Any, JSONResponse | None]:
     synatyx = getattr(request.app.state, "synatyx", None)
     if synatyx is None:
         return None, JSONResponse({"error": "server not ready"}, status_code=503)
@@ -314,7 +315,7 @@ async def _index_service_from(request: Request):
     return (svc, user_id, body), None
 
 
-async def index_script(_request: Request):
+async def index_script(_request: Request) -> Response:
     """Serve scripts/index_project.py so clients can self-update:
     curl -s -H "X-Auth-Key: $KEY" $URL/index/script | python3 - --root .
     Developers never need the Synatyx repo — the script version always
@@ -372,7 +373,9 @@ async def index_files(request: Request) -> JSONResponse:
     await request.app.state.synatyx._usage.record(
         user_id=user_id,
         tool="index_push",
-        input_tokens=estimate_tokens("".join(str(f.get("content", "")) for f in files if isinstance(f, dict))),
+        input_tokens=estimate_tokens(
+            "".join(str(f.get("content", "")) for f in files if isinstance(f, dict))
+        ),
         output_tokens=0,
         embedding_tokens=usage_end(),
         project=body.get("project") or None,
