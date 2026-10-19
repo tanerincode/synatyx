@@ -25,6 +25,10 @@ from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
 from src.storage.redis import RedisStorage
 from src.transports.mcp.dashboard import (
+    api_brief_create,
+    api_brief_detail,
+    api_brief_update,
+    api_briefs,
     api_graph,
     api_index_chunks,
     api_index_graph,
@@ -469,6 +473,10 @@ app = Starlette(
         Route("/dashboard/api/index_graph", api_index_graph),
         Route("/dashboard/api/index_chunks", api_index_chunks),
         Route("/dashboard/api/usage", api_usage),
+        Route("/dashboard/api/briefs", api_briefs),
+        Route("/dashboard/api/briefs", api_brief_create, methods=["POST"]),
+        Route("/dashboard/api/briefs/{id}", api_brief_detail),
+        Route("/dashboard/api/briefs/{id}", api_brief_update, methods=["PATCH"]),
     ],
     middleware=_middleware,
     lifespan=lifespan,
