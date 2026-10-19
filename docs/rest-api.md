@@ -43,6 +43,7 @@ Branch on `code`, never on the message.
 | Code | Status | Meaning |
 | --- | --- | --- |
 | `INVALID_REQUEST` | 400 | Malformed body, missing or invalid fields. `details.missing` lists every missing field at once. |
+| `NOT_FOUND` | 404 | The thing addressed by id does not exist for this user (a handoff, or a handoff version). |
 | `NOT_READY` | 503 | The server is still starting and has no storage connections yet. |
 | `UPSTREAM_UNAVAILABLE` | 502 | A backend the call needed — vector store, embedding provider — failed. |
 | `INTERNAL_ERROR` | 500 | An unhandled error, or an operation that half-succeeded and the caller needs to know. |
@@ -169,6 +170,90 @@ are repo-relative. Re-pushing an unchanged file re-embeds nothing
 Chunks belong to `userId` (the server default when absent), and
 `context_index_search` only sees chunks of the user it searches as — so a
 service pushes and searches under one id.
+
+## Handoffs
+
+Versioned briefs one agent writes for another. Same tools as
+`context_handoff_*`; every route delegates to them. Handoffs belong to
+`userId` (the server default when absent). `project` is slugified, so
+`Synatyx` and `synatyx` are one project.
+
+Metadata objects look like this. **List and mine never include `body`; only
+`GET /v1/handoffs/{id}` does.**
+
+```json
+{ "id": "7c1e…", "project": "synatyx", "slug": "rest-routes", "title": "REST routes",
+  "assignee": "synatyx-w2", "status": "assigned", "version": 1, "parentId": null,
+  "taskIds": [], "createdBy": "synatyx-lead",
+  "createdAt": "2026-10-19T12:00:00+00:00", "updatedAt": "2026-10-19T12:00:00+00:00" }
+```
+
+`status` is one of `draft`, `assigned`, `in_progress`, `blocked`, `done`,
+`cancelled`. Error mapping: unknown id or version → `404 NOT_FOUND`; slug
+already used in the project → `409 INVALID_REQUEST`; bad status, missing field,
+unknown `parentId` → `400 INVALID_REQUEST`.
+
+### `GET /v1/handoffs?userId&project&assignee&status`
+
+```
+GET /v1/handoffs?project=synatyx&assignee=synatyx-w2
+→ 200 { "handoffs": [ { …metadata… } ], "count": 1 }
+```
+
+### `GET /v1/handoffs/mine?userId&assignee&project`
+
+Open handoffs only (`assigned`, `in_progress`, `blocked`); `assignee` is required.
+
+```
+GET /v1/handoffs/mine?assignee=synatyx-w2
+→ 200 { "handoffs": [ { …metadata… } ], "count": 1 }
+```
+
+### `GET /v1/handoffs/{id}?userId&version`
+
+The full brief plus the 10 newest reports. `version` returns an earlier body.
+
+```
+GET /v1/handoffs/7c1e…
+→ 200 { "handoff": { …metadata…, "body": "# Brief\n…" },
+        "reports": [ { "id": "…", "handoffId": "7c1e…", "agent": "synatyx-w2",
+                       "text": "routes done", "statusAfter": "done",
+                       "createdAt": "…" } ] }
+```
+
+### `POST /v1/handoffs`
+
+`{ project, title, body, assignee?, slug?, parentId?, status?, taskIds?, createdBy?, userId? }`.
+`slug` defaults to the slugified title; `status` to `assigned` with an assignee,
+else `draft`. `createdBy` is your session name (default `userId`).
+
+```
+POST /v1/handoffs
+{ "project": "synatyx", "title": "REST routes", "body": "# Brief", "assignee": "synatyx-w2" }
+→ 201 { "handoff": { …metadata… } }
+```
+
+### `PATCH /v1/handoffs/{id}`
+
+`{ body?, title?, status?, assignee?, author?, userId? }`. A body that differs
+from the current one creates a new version (`author` is recorded on it); an
+identical body does not.
+
+```
+PATCH /v1/handoffs/7c1e…
+{ "body": "# Brief v2", "author": "synatyx-lead" }
+→ 200 { "handoff": { …metadata…, "version": 2 } }
+```
+
+### `POST /v1/handoffs/{id}/reports`
+
+`{ agent, text, status?, userId? }`. `status` moves the handoff in the same step.
+
+```
+POST /v1/handoffs/7c1e…/reports
+{ "agent": "synatyx-w2", "text": "routes done", "status": "done" }
+→ 201 { "report": { …, "statusAfter": "done" }, "handoff": { …metadata…, "status": "done" } }
+```
 
 ## `DELETE /v1/users/{user_id}`
 

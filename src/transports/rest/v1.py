@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # ingested yet" and "Synatyx is broken" decides whether the caller degrades
 # gracefully or pages someone.
 INVALID_REQUEST = "INVALID_REQUEST"
+NOT_FOUND = "NOT_FOUND"
 NOT_READY = "NOT_READY"
 UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"
 INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -511,6 +512,221 @@ async def index_remove(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Handoffs
+#
+# Thin mirrors of the context_handoff_* tools: each route builds the tool's
+# arguments, runs it through SynatyxMCPServer.run_tool and reshapes the result
+# into camelCase. Nothing about handoffs is implemented here.
+# ---------------------------------------------------------------------------
+
+_HANDOFF_KEYS = {
+    "parent_id": "parentId",
+    "task_ids": "taskIds",
+    "created_by": "createdBy",
+    "created_at": "createdAt",
+    "updated_at": "updatedAt",
+}
+_REPORT_KEYS = {
+    "handoff_id": "handoffId",
+    "status_after": "statusAfter",
+    "created_at": "createdAt",
+}
+
+
+def _camel(item: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
+    return {keys.get(k, k): v for k, v in item.items()}
+
+
+def _handoff_failed(result: dict[str, Any], *, create: bool = False) -> JSONResponse | None:
+    """Map a handoff tool's error dict onto the envelope.
+
+    The handoff tools return plain `error` strings for what the caller did
+    (unknown id, slug taken, bad status) and raise for what broke, so an error
+    without an `error_type` is the caller's to fix and one with it goes
+    through the generic mapping.
+    """
+    if "error" not in result:
+        return None
+    if result.get("error_type"):
+        return _tool_failed(result)
+
+    message = str(result["error"])
+    if "already exists" in message:
+        return error(INVALID_REQUEST, message, 409)
+    # On create the only thing that can be missing is the parent handoff, which
+    # is a bad field, not a missing resource.
+    if "not found" in message and not create:
+        return error(NOT_FOUND, message, 404)
+    return error(INVALID_REQUEST, message, 400)
+
+
+def _handoff_server(request: Request) -> tuple[Any, JSONResponse | None]:
+    synatyx = getattr(request.app.state, "synatyx", None)
+    if synatyx is None:
+        return None, error(NOT_READY, "Server is still starting", 503)
+    return synatyx, None
+
+
+def _query(request: Request) -> dict[str, Any]:
+    return dict(request.query_params)
+
+
+async def handoff_list(request: Request) -> JSONResponse:
+    """Handoff metadata, newest first. Never the body."""
+    synatyx, err = _handoff_server(request)
+    if err is not None:
+        return err
+    q = _query(request)
+    args: dict[str, Any] = {"user_id": _user_id(q)}
+    for name in ("project", "assignee", "status"):
+        if _text(q, name):
+            args[name] = _text(q, name)
+
+    result = await synatyx.run_tool("context_handoff_list", args)
+    failure = _handoff_failed(result)
+    if failure is not None:
+        return failure
+    return JSONResponse({
+        "handoffs": [_camel(h, _HANDOFF_KEYS) for h in result.get("handoffs", [])],
+        "count": result.get("count", 0),
+    })
+
+
+async def handoff_mine(request: Request) -> JSONResponse:
+    """One assignee's open handoffs. Never the body."""
+    synatyx, err = _handoff_server(request)
+    if err is not None:
+        return err
+    q = _query(request)
+    values, err = _require(q, {"assignee": ("assignee",)})
+    if err is not None:
+        return err
+    args: dict[str, Any] = {"user_id": _user_id(q), "assignee": values["assignee"]}
+    if _text(q, "project"):
+        args["project"] = _text(q, "project")
+
+    result = await synatyx.run_tool("context_handoff_mine", args)
+    failure = _handoff_failed(result)
+    if failure is not None:
+        return failure
+    return JSONResponse({
+        "handoffs": [_camel(h, _HANDOFF_KEYS) for h in result.get("handoffs", [])],
+        "count": result.get("count", 0),
+    })
+
+
+async def handoff_get(request: Request) -> JSONResponse:
+    """One handoff in full: body, metadata and its latest reports."""
+    synatyx, err = _handoff_server(request)
+    if err is not None:
+        return err
+    q = _query(request)
+    args: dict[str, Any] = {"user_id": _user_id(q), "id": request.path_params["id"]}
+    if _text(q, "version"):
+        try:
+            args["version"] = int(_text(q, "version"))
+        except ValueError:
+            return error(INVALID_REQUEST, "version must be an integer", 400)
+
+    result = await synatyx.run_tool("context_handoff_get", args)
+    failure = _handoff_failed(result)
+    if failure is not None:
+        return failure
+    return JSONResponse({
+        "handoff": _camel(result["handoff"], _HANDOFF_KEYS),
+        "reports": [_camel(r, _REPORT_KEYS) for r in result.get("reports", [])],
+    })
+
+
+async def handoff_create(request: Request) -> JSONResponse:
+    synatyx, body, err = await _parse(request)
+    if err is not None:
+        return err
+    assert body is not None
+
+    values, err = _require(body, {
+        "project": ("project",),
+        "title": ("title",),
+        "body": ("body",),
+    })
+    if err is not None:
+        return err
+
+    args: dict[str, Any] = {"user_id": _user_id(body), **values}
+    for key, names in {
+        "assignee": ("assignee",),
+        "slug": ("slug",),
+        "parent_id": ("parentId", "parent_id"),
+        "status": ("status",),
+        "created_by": ("createdBy", "created_by"),
+    }.items():
+        value = _text(body, *names)
+        if value:
+            args[key] = value
+    task_ids = _field(body, "taskIds", "task_ids")
+    if task_ids is not None:
+        if not isinstance(task_ids, list):
+            return error(INVALID_REQUEST, "taskIds must be an array", 400)
+        args["task_ids"] = [str(t) for t in task_ids]
+
+    result = await synatyx.run_tool("context_handoff_create", args)
+    failure = _handoff_failed(result, create=True)
+    if failure is not None:
+        return failure
+    return JSONResponse({"handoff": _camel(result["handoff"], _HANDOFF_KEYS)}, status_code=201)
+
+
+async def handoff_update(request: Request) -> JSONResponse:
+    synatyx, body, err = await _parse(request)
+    if err is not None:
+        return err
+    assert body is not None
+
+    args: dict[str, Any] = {"user_id": _user_id(body), "id": request.path_params["id"]}
+    for name in ("body", "title", "status", "assignee", "author"):
+        value = _field(body, name)
+        if value is not None:
+            args[name] = str(value)
+
+    result = await synatyx.run_tool("context_handoff_update", args)
+    failure = _handoff_failed(result)
+    if failure is not None:
+        return failure
+    return JSONResponse({"handoff": _camel(result["handoff"], _HANDOFF_KEYS)})
+
+
+async def handoff_report(request: Request) -> JSONResponse:
+    synatyx, body, err = await _parse(request)
+    if err is not None:
+        return err
+    assert body is not None
+
+    values, err = _require(body, {"agent": ("agent",), "text": ("text",)})
+    if err is not None:
+        return err
+    args: dict[str, Any] = {
+        "user_id": _user_id(body),
+        "id": request.path_params["id"],
+        **values,
+    }
+    if _text(body, "status"):
+        args["status"] = _text(body, "status")
+
+    result = await synatyx.run_tool("context_handoff_report", args)
+    failure = _handoff_failed(result)
+    if failure is not None:
+        return failure
+    handoff = result.get("handoff")
+    return JSONResponse(
+        {
+            "report": _camel(result["report"], _REPORT_KEYS),
+            "handoff": _camel(handoff, _HANDOFF_KEYS) if handoff else None,
+        },
+        status_code=201,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Erasure
 # ---------------------------------------------------------------------------
 
@@ -595,4 +811,11 @@ routes = [
     Route("/v1/users/{user_id}", _enveloped(erase_user), methods=["DELETE"]),
     Route("/v1/projects/{slug}/index", _enveloped(index_push), methods=["POST"]),
     Route("/v1/projects/{slug}/index", _enveloped(index_remove), methods=["DELETE"]),
+    # /mine must come before /{id}, or "mine" is captured as a handoff id.
+    Route("/v1/handoffs", _enveloped(handoff_list), methods=["GET"]),
+    Route("/v1/handoffs", _enveloped(handoff_create), methods=["POST"]),
+    Route("/v1/handoffs/mine", _enveloped(handoff_mine), methods=["GET"]),
+    Route("/v1/handoffs/{id}", _enveloped(handoff_get), methods=["GET"]),
+    Route("/v1/handoffs/{id}", _enveloped(handoff_update), methods=["PATCH"]),
+    Route("/v1/handoffs/{id}/reports", _enveloped(handoff_report), methods=["POST"]),
 ]
