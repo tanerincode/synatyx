@@ -41,9 +41,11 @@ import json
 import os
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -111,6 +113,50 @@ def indexable(path: Path) -> bool:
         return False
 
 
+SYSTEM_CAFILE = "/etc/ssl/cert.pem"
+_ssl_context: ssl.SSLContext | None = None
+
+
+def _has_ca_certs(ctx: ssl.SSLContext) -> bool:
+    return ctx.cert_store_stats().get("x509_ca", 0) > 0
+
+
+def system_cafile() -> str | None:
+    return SYSTEM_CAFILE if os.path.isfile(SYSTEM_CAFILE) else None
+
+
+def certifi_cafile() -> str | None:
+    try:
+        import certifi  # type: ignore[import-not-found,unused-ignore]
+    except ImportError:
+        return None
+    where: str = certifi.where()
+    return where
+
+
+def ssl_context() -> ssl.SSLContext:
+    """The one TLS context every request uses. Verification is never disabled.
+
+    A python.org framework build ships no CA bundle, so the default context
+    verifies against nothing and every https request fails. Fall back, in
+    order: the default context when it has CAs (or SSL_CERT_FILE/_DIR says
+    where they are), the system bundle, certifi, then the default as is.
+    """
+    global _ssl_context
+    if _ssl_context is None:
+        ctx = ssl.create_default_context()
+        if os.getenv("SSL_CERT_FILE") or os.getenv("SSL_CERT_DIR") or _has_ca_certs(ctx):
+            _ssl_context = ctx
+        else:
+            cafile = system_cafile() or certifi_cafile()
+            _ssl_context = ssl.create_default_context(cafile=cafile) if cafile else ctx
+    return _ssl_context
+
+
+def _open(req: urllib.request.Request, timeout: float) -> Any:
+    return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
+
+
 def post(url: str, key: str, payload: dict) -> dict:
     req = urllib.request.Request(
         url,
@@ -118,8 +164,39 @@ def post(url: str, key: str, payload: dict) -> dict:
         headers={"Content-Type": "application/json", "X-Auth-Key": key},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=300) as resp:
+    with _open(req, 300) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+CA_HINT = (
+    "this Python has no CA bundle to verify the server's certificate; "
+    "set SSL_CERT_FILE=/etc/ssl/cert.pem (macOS) or `pip install certifi`"
+)
+
+
+def describe_error(exc: BaseException) -> str:
+    """One line saying what is wrong, naming the likely fix."""
+    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+    if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(exc):
+        return f"TLS certificate verification failed: {CA_HINT}"
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code in (401, 403):
+            return f"the server rejected the auth key (HTTP {exc.code}): wrong key for this URL?"
+        return f"the server answered HTTP {exc.code}: is this a Synatyx server?"
+    if isinstance(exc, urllib.error.URLError):
+        return f"cannot reach the server: {exc.reason}"
+    return str(exc) or type(exc).__name__
+
+
+def check_connection(url: str, key: str) -> None:
+    """One real, authenticated request, so a bad URL, key or CA fails now and not
+    silently inside a hook later. GET /index/script needs the key and reads nothing."""
+    req = urllib.request.Request(f"{url}/index/script", headers={"X-Auth-Key": key})
+    try:
+        with _open(req, 20):
+            return
+    except Exception as exc:
+        raise InstallError(describe_error(exc)) from exc
 
 
 # ── Where things live ────────────────────────────────────────────────────────
@@ -147,7 +224,31 @@ def bin_path() -> Path:
 
 
 def settings_path() -> Path:
+    """Claude Code's default settings file."""
     return Path.home() / ".claude" / "settings.json"
+
+
+def settings_targets(overrides: list[str] | None = None) -> list[Path]:
+    """Every settings file the hooks belong in.
+
+    $CLAUDE_CONFIG_DIR/settings.json when that is set (sessions started with it
+    never read ~/.claude), and ~/.claude/settings.json too when it exists, or
+    when CLAUDE_CONFIG_DIR is unset. --settings replaces all of this.
+    """
+    if overrides:
+        found = [Path(p).expanduser() for p in overrides]
+    else:
+        found = []
+        config_dir_env = os.getenv("CLAUDE_CONFIG_DIR")
+        if config_dir_env:
+            found.append(Path(config_dir_env).expanduser() / "settings.json")
+        if not config_dir_env or (Path.home() / ".claude").is_dir():
+            found.append(settings_path())
+    unique: list[Path] = []
+    for path in found:
+        if path.resolve() not in [u.resolve() for u in unique]:
+            unique.append(path)
+    return unique
 
 
 def is_macos() -> bool:
@@ -158,7 +259,7 @@ def log(message: str) -> None:
     """Background runs have no terminal; failures go to a small log instead."""
     try:
         cache_dir().mkdir(parents=True, exist_ok=True)
-        path = cache_dir() / "index.log"
+        path = cache_dir() / "push.log"
         if path.exists() and path.stat().st_size > 100_000:
             path.unlink()
         with open(path, "a", encoding="utf-8") as fh:
@@ -436,6 +537,8 @@ def spawn_background(root: Path, delay: float, debounce: float) -> None:
 
 
 def run_push(root: Path) -> None:
+    """Push one repo. A failure is logged with the repo, never raised: this runs
+    inside hooks and must not break the session that triggered it."""
     if indexing_disabled(root):
         return
     base = resolve_url()
@@ -443,7 +546,10 @@ def run_push(root: Path) -> None:
     if not key:
         log(f"{root}: no auth key (run install, or set SYNATYX_AUTH_KEY)")
         return
-    sync(root, project_name(root), base, key, resolve_user())
+    try:
+        sync(root, project_name(root), base, key, resolve_user())
+    except Exception as exc:
+        log(f"{root}: push to {base} failed: {describe_error(exc)}")
 
 
 def cmd_push(args: argparse.Namespace) -> int:
@@ -569,8 +675,7 @@ def strip_hooks(settings: dict[str, Any]) -> dict[str, Any]:
     return settings
 
 
-def load_settings() -> dict[str, Any]:
-    path = settings_path()
+def load_settings(path: Path) -> dict[str, Any]:
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -586,9 +691,8 @@ def load_settings() -> dict[str, Any]:
     return data
 
 
-def save_settings(settings: dict[str, Any]) -> bool:
+def save_settings(path: Path, settings: dict[str, Any]) -> bool:
     """Atomic write, previous file kept as .bak. False when nothing changed."""
-    path = settings_path()
     text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
     if path.exists() and path.read_text(encoding="utf-8") == text:
         return False
@@ -609,7 +713,9 @@ def cmd_install(args: argparse.Namespace) -> int:
         print("[synatyx-index] no key given", file=sys.stderr)
         return 1
 
-    settings = load_settings()  # fail before changing anything if it is unreadable
+    # Read every settings file first: fail before changing anything if one is unreadable.
+    targets = settings_targets(args.settings)
+    loaded = [(path, load_settings(path)) for path in targets]
 
     if keychain_set(url, key):
         where = "macOS Keychain"
@@ -626,20 +732,28 @@ def cmd_install(args: argparse.Namespace) -> int:
         shutil.copy2(__file__, target)
         target.chmod(0o755)
 
-    changed = save_settings(merge_hooks(settings))
-    print(f"[synatyx-index] installed: key in {where}, config {env_file()}, "
-          f"binary {target}, hooks {'updated' if changed else 'already in place'} "
-          f"in {settings_path()}")
+    print(f"[synatyx-index] key stored in {where}")
+    print(f"[synatyx-index] wrote {env_file()}")
+    print(f"[synatyx-index] binary {target}")
+    for path, settings in loaded:
+        changed = save_settings(path, merge_hooks(settings))
+        print(f"[synatyx-index] hooks {'written to' if changed else 'already in'} {path}")
     if str(target.parent) not in os.getenv("PATH", "").split(os.pathsep):
         print(f"[synatyx-index] note: {target.parent} is not on your PATH "
               f"(the hooks call {target} directly, so this only matters for typing it)")
+
+    # Last, and loudly: the config above stays, so fixing the cause and rerunning works.
+    check_connection(url, key)
+    print(f"[synatyx-index] connected to {url} with that key")
     return 0
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     url = read_env_file().get("SYNATYX_URL") or resolve_url()
-    if settings_path().exists():
-        save_settings(strip_hooks(load_settings()))
+    for path in settings_targets(args.settings):
+        if path.exists():
+            if save_settings(path, strip_hooks(load_settings(path))):
+                print(f"[synatyx-index] hooks removed from {path}")
     keychain_delete(url)
     for path in (env_file(), key_file()):
         path.unlink(missing_ok=True)
@@ -663,9 +777,14 @@ def build_parser() -> argparse.ArgumentParser:
     inst = sub.add_parser("install", help="one-time setup: key, config, binary, Claude Code hooks")
     inst.add_argument("--url", required=True, help="Synatyx server base URL")
     inst.add_argument("--user", default=None, help="memory user id (default: OS username)")
+    inst.add_argument("--settings", action="append", metavar="PATH",
+                      help="settings.json to put the hooks in (repeatable; replaces the "
+                           "$CLAUDE_CONFIG_DIR and ~/.claude defaults)")
 
     un = sub.add_parser("uninstall", help="remove our hooks, config and stored key")
     un.add_argument("--purge", action="store_true", help="also remove ~/.local/bin/synatyx-index")
+    un.add_argument("--settings", action="append", metavar="PATH",
+                    help="settings.json to remove the hooks from (repeatable)")
 
     push = sub.add_parser("push", help="push the repo to the index (what the hooks run)")
     push.add_argument("--root", default=".", help="project root (default: cwd)")
