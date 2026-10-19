@@ -403,6 +403,49 @@ class QdrantStorage:
             points=[str(uuid.UUID(item_id))],
         )
 
+    async def get_item(self, item_id: str) -> dict[str, Any] | None:
+        """Raw payload of one point (plus "_id"), or None if it does not exist.
+
+        No user filter — dashboard/admin use.
+        """
+        try:
+            point_id = str(uuid.UUID(item_id))
+        except ValueError:
+            return None
+        records = await self._client.retrieve(
+            collection_name=self._collection_name,
+            ids=[point_id],
+            with_payload=True,
+            with_vectors=False,
+        )
+        if not records:
+            return None
+        payload = dict(records[0].payload or {})
+        payload["_id"] = str(records[0].id)
+        return payload
+
+    async def set_pinned(self, item_id: str, pinned: bool) -> None:
+        """Pin or unpin a point by updating its payload in place."""
+        await self._client.set_payload(
+            collection_name=self._collection_name,
+            payload={"is_pinned": pinned},
+            points=[str(uuid.UUID(item_id))],
+        )
+
+    async def undeprecate(self, item_id: str) -> None:
+        """Clear deprecation: is_deprecated false, deprecated_at/reason removed."""
+        point: list[Any] = [str(uuid.UUID(item_id))]
+        await self._client.set_payload(
+            collection_name=self._collection_name,
+            payload={"is_deprecated": False},
+            points=point,
+        )
+        await self._client.delete_payload(
+            collection_name=self._collection_name,
+            keys=["deprecated_at", "deprecated_reason"],
+            points=point,
+        )
+
     async def scan_all_items(
         self,
         memory_layer: MemoryLayer | None = None,

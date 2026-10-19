@@ -16,7 +16,7 @@ from src.transports.mcp.dashboard.briefs import (
 )
 from src.transports.mcp.dashboard.graph import api_graph
 from src.transports.mcp.dashboard.indexes import api_index_chunks, api_index_graph, api_indexes
-from src.transports.mcp.dashboard.items import api_items
+from src.transports.mcp.dashboard.items import api_item_action, api_item_detail, api_items
 from src.transports.mcp.dashboard.overview import api_overview
 from src.transports.mcp.dashboard.page import dashboard_page
 from src.transports.mcp.dashboard.tasks import api_tasks
@@ -27,6 +27,8 @@ DASHBOARD_ROUTES: list[Route] = [
     Route("/dashboard", dashboard_page),
     Route("/dashboard/api/overview", api_overview),
     Route("/dashboard/api/items", api_items),
+    Route("/dashboard/api/items/{id}", api_item_detail),
+    Route("/dashboard/api/items/{id}/{action}", api_item_action, methods=["POST"]),
     Route("/dashboard/api/tasks", api_tasks),
     Route("/dashboard/api/users", api_users),
     Route("/dashboard/api/graph", api_graph),
@@ -50,6 +52,8 @@ __all__ = [
     "api_index_chunks",
     "api_index_graph",
     "api_indexes",
+    "api_item_action",
+    "api_item_detail",
     "api_items",
     "api_overview",
     "api_tasks",
