@@ -12,7 +12,7 @@ test("hygiene: counts, duplicates and stale list open the shared drawer", async 
   await expect(dup.locator(".mid")).toContainText(/\d+%|—/);
   await expect(page.getByRole("heading", { name: "Possibly stale" })).toBeVisible();
 
-  await page.screenshot({ path: "e2e/screenshots/hygiene-1440.png", fullPage: true });
+  await page.screenshot({ path: "test-results/hygiene-1440.png", fullPage: true });
 
   // a duplicate side opens the drawer; Esc closes it
   await dup.locator(".side").first().click();

@@ -27,7 +27,7 @@ test("memories: filter, sort, page, open the drawer and pin", async ({ page }) =
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(rows.first()).toBeVisible();
 
-  await page.screenshot({ path: "e2e/screenshots/memories-list-1440.png" });
+  await page.screenshot({ path: "test-results/memories-list-1440.png" });
 
   // drawer: detail, pin round trip with a toast, Esc closes
   await rows.first().click();
@@ -41,7 +41,7 @@ test("memories: filter, sort, page, open the drawer and pin", async ({ page }) =
   await expect(page.getByRole("status")).toContainText(before === "Pin" ? "Pinned" : "Unpinned");
   await expect(drawer.getByRole("button", { name: before === "Pin" ? "Unpin" : "Pin" })).toBeVisible();
 
-  await page.screenshot({ path: "e2e/screenshots/memories-drawer-1440.png" });
+  await page.screenshot({ path: "test-results/memories-drawer-1440.png" });
   await page.keyboard.press("Escape");
   await expect(drawer).toBeHidden();
   await expect(page).not.toHaveURL(/item=/);
