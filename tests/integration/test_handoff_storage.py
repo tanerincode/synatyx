@@ -132,3 +132,56 @@ async def test_task_assignee_add_list_update(storage: PostgresStorage) -> None:
     assert updated is not None and updated.assignee == "w2"
     assert {t.title for t in await storage.task_list("u1", assignee="w2")} == {"one", "two"}
     assert await storage.task_update(t1.id, "u2", assignee="w9") is None
+
+
+async def test_list_all_spans_users_and_filters(storage: PostgresStorage) -> None:
+    await storage.handoff_create(_h("a", assignee="w1", status=HandoffStatus.ASSIGNED))
+    await storage.handoff_create(_h("b", user="u2", assignee="w1", status=HandoffStatus.DONE))
+    await storage.handoff_create(_h("c", user="u2", project="other"))
+
+    async def slugs(**kw: object) -> list[str]:
+        return sorted(h.slug for h in await storage.handoff_list_all(**kw))  # type: ignore[arg-type]
+
+    assert await slugs() == ["a", "b", "c"]
+    assert await slugs(project="other") == ["c"]
+    assert await slugs(assignee="w1") == ["a", "b"]
+    assert await slugs(statuses=[HandoffStatus.DONE]) == ["b"]
+    assert len(await storage.handoff_list_all(limit=2)) == 2
+
+
+async def test_versions_newest_first_without_bodies(storage: PostgresStorage) -> None:
+    h = await storage.handoff_create(_h(created_by="kai"))
+    for n, author in ((2, "w1"), (3, "w2")):
+        h.version = n
+        h.body = f"v{n}"
+        h.touch()
+        await storage.handoff_save(
+            h, HandoffVersion(handoff_id=h.id, version=n, body=f"v{n}", author=author)
+        )
+
+    versions = await storage.handoff_versions(h.id)
+    assert [v["version"] for v in versions] == [3, 2, 1]
+    assert [v["author"] for v in versions] == ["w2", "w1", "kai"]
+    assert all(set(v) == {"version", "author", "created_at"} for v in versions)
+    assert await storage.handoff_versions("missing") == []
+
+
+async def test_last_reports_newest_per_handoff(storage: PostgresStorage) -> None:
+    a = await storage.handoff_create(_h("a"))
+    b = await storage.handoff_create(_h("b"))
+    quiet = await storage.handoff_create(_h("quiet"))
+    now = datetime.now(UTC)
+    for handoff, text, offset in (
+        (a, "a-old", 0), (a, "a-new", 10), (b, "b-only", 5), (a, "a-mid", 5),
+    ):
+        await storage.handoff_add_report(
+            HandoffReport(
+                handoff_id=handoff.id, agent="w1", text=text,
+                created_at=now + timedelta(seconds=offset),
+            )
+        )
+
+    last = await storage.handoff_last_reports([a.id, b.id, quiet.id])
+    assert {k: v.text for k, v in last.items()} == {a.id: "a-new", b.id: "b-only"}
+    assert quiet.id not in last
+    assert await storage.handoff_last_reports([]) == {}
