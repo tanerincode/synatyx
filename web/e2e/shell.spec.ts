@@ -41,8 +41,8 @@ test("deep links survive a reload (SPA fallback) and the palette navigates", asy
 test("overview screenshot at 1440 px", async ({ page }) => {
   await page.goto("./?project=synatyx");
   await expect(page.getByText("Blocked brief · Paged /items with q, origin, sort")).toBeVisible();
-  await page.screenshot({ path: "test-results/shots/overview-1440.png", fullPage: true });
+  await page.screenshot({ path: "e2e/screenshots/overview-1440.png", fullPage: true });
   await page.emulateMedia({ colorScheme: "light" });
   await page.getByRole("button", { name: "Toggle theme" }).click();
-  await page.screenshot({ path: "test-results/shots/overview-1440-light.png", fullPage: true });
+  await page.screenshot({ path: "e2e/screenshots/overview-1440-light.png", fullPage: true });
 });

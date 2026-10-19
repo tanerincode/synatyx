@@ -626,6 +626,45 @@ def test_brief_detail_has_body_reports_versions() -> None:
     assert "SECRET alpha body" not in res.text  # old bodies are not exposed
 
 
+def test_brief_detail_at_a_version() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+    url = f"/dashboard/api/briefs/{ids['a']}"
+
+    old = client.get(url, params={"user": "u1", "version": "1"})
+    assert old.status_code == 200
+    data = old.json()
+    assert data["body"] == "SECRET alpha body"
+    assert data["version"] == 1
+    # everything else is the current brief
+    assert data["status"] == "in_progress"
+    assert data["reports"][0]["text"] == "started"
+    assert [v["version"] for v in data["versions"]] == [2, 1]
+
+    current = client.get(url, params={"user": "u1", "version": "2"}).json()
+    assert current["body"] == "SECRET alpha v2" and current["version"] == 2
+    assert client.get(url, params={"user": "u1"}).json() == current
+
+
+def test_brief_detail_bad_version() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+    url = f"/dashboard/api/briefs/{ids['a']}"
+
+    assert client.get(url, params={"user": "u1", "version": "9"}).status_code == 404
+    assert client.get(url, params={"user": "u1", "version": "0"}).status_code == 404
+    assert client.get(url, params={"user": "u1", "version": "-1"}).status_code == 404
+    for bad in ("abc", "1.5", ""):
+        assert client.get(url, params={"user": "u1", "version": bad}).status_code == 400, bad
+    # an unknown brief is still a brief 404, with or without a version
+    gone = client.get("/dashboard/api/briefs/nope", params={"user": "u1", "version": "1"})
+    assert gone.status_code == 404
+
+
 def test_brief_detail_requires_user_and_404s() -> None:
     import asyncio
 
