@@ -1,0 +1,26 @@
+/* Code index page. Colours come from the shared variables in styles.css. */
+.ci-langs { display: flex; flex-wrap: wrap; gap: 6px; }
+.ci-lang {
+  display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px 1px 7px; border-radius: 999px;
+  font: 11px var(--mono); white-space: nowrap; border: 1px solid var(--line-2); color: var(--ink-2); line-height: 18px;
+}
+.ci-lang i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ci-split { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 16px; }
+.ci-tree { max-height: 560px; overflow: auto; }
+.ci-tn {
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; text-align: left;
+  padding: 0 6px; border-radius: 6px; cursor: pointer; white-space: nowrap; font: inherit; color: inherit;
+}
+.ci-tn:hover { background: var(--panel-2); }
+.ci-tn.on { background: var(--panel-2); color: var(--cyan); box-shadow: inset 2px 0 0 var(--cyan); }
+.ci-tn .tw { width: 10px; flex: none; color: var(--muted); font-size: 9px; }
+.ci-tn .c { margin-left: auto; padding-left: 10px; }
+.ci-chunk { margin-bottom: 14px; }
+.ci-chunk:last-child { margin-bottom: 0; }
+.ci-chunk-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font: 12px var(--mono); color: var(--ink); }
+.ci-chunk-h .path { word-break: break-all; }
+.ci-kind { border: 1px solid var(--line-2); border-radius: 6px; padding: 0 7px; font: 11px var(--mono); color: var(--ink-2); }
+.ci-filter { display: inline-flex; align-items: center; gap: 6px; }
+tr.ci-row { cursor: pointer; }
+tr.ci-row.on { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--cyan); }
+@media (max-width: 1100px) { .ci-split { grid-template-columns: 1fr; } }
