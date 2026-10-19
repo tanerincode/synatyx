@@ -19,8 +19,8 @@ import threading
 import time
 import types
 import urllib.error
-from pathlib import Path
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
