@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import pytest
 
 from src.core.handoff import HandoffService
@@ -57,6 +60,32 @@ class FakeHandoffStorage:
             out = [h for h in out if h.status in statuses]
         out.sort(key=lambda h: h.updated_at, reverse=True)
         return [h.model_copy(deep=True) for h in out[:limit]]
+
+    async def handoff_list_all(self, *, project=None, assignee=None, statuses=None, limit=50):
+        out = list(self.handoffs.values())
+        if project is not None:
+            out = [h for h in out if h.project == project]
+        if assignee is not None:
+            out = [h for h in out if h.assignee == assignee]
+        if statuses:
+            out = [h for h in out if h.status in statuses]
+        out.sort(key=lambda h: h.updated_at, reverse=True)
+        return [h.model_copy(deep=True) for h in out[:limit]]
+
+    async def handoff_versions(self, handoff_id: str) -> list[dict[str, Any]]:
+        mine = [v for (hid, _), v in self.versions.items() if hid == handoff_id]
+        mine.sort(key=lambda v: v.version, reverse=True)
+        return [
+            {"version": v.version, "author": v.author, "created_at": v.created_at}
+            for v in mine
+        ]
+
+    async def handoff_last_reports(self, ids: list[str]) -> dict[str, HandoffReport]:
+        out: dict[str, HandoffReport] = {}
+        for r in sorted(self.reports, key=lambda r: r.created_at):
+            if r.handoff_id in ids:
+                out[r.handoff_id] = r
+        return out
 
     async def handoff_save(self, h, new_version=None):
         self.handoffs[h.id] = h.model_copy(deep=True)
@@ -226,3 +255,48 @@ async def test_list_filters_by_status(svc):
     assert len(await svc.list("u1", project="p")) == 2
     only = await svc.list("u1", status=HandoffStatus.ASSIGNED)
     assert [h.title for h in only] == ["B"]
+
+
+async def test_list_all_spans_users_and_filters(svc):
+    await svc.create("u1", "p1", "One", "b", assignee="w1")
+    await svc.create("u2", "p1", "Two", "b")
+    await svc.create("u2", "p2", "Three", "b", assignee="w1")
+
+    assert len(await svc.list_all()) == 3
+    assert {h.title for h in await svc.list_all(project="p1")} == {"One", "Two"}
+    assert {h.title for h in await svc.list_all(assignee="w1")} == {"One", "Three"}
+    drafts = await svc.list_all(status=HandoffStatus.DRAFT)
+    assert [h.title for h in drafts] == ["Two"]
+
+
+async def test_versions_newest_first_without_bodies(svc):
+    h = await svc.create("u1", "p1", "One", "v1 body")
+    await svc.update("u1", h.id, body="v2 body", author="kai")
+
+    versions = await svc.versions(h.id)
+    assert [v["version"] for v in versions] == [2, 1]
+    assert versions[0]["author"] == "kai"
+    assert all("body" not in v for v in versions)
+
+
+async def test_last_reports_returns_newest_per_handoff(svc, storage):
+    a = await svc.create("u1", "p1", "A", "b")
+    b = await svc.create("u1", "p1", "B", "b")
+    await svc.report("u1", a.id, "w1", "first")
+    await svc.report("u1", a.id, "w1", "second")
+    storage.reports[1].created_at = datetime.now(UTC) + timedelta(minutes=1)
+
+    last = await svc.last_reports([a.id, b.id])
+    assert last[a.id].text == "second"
+    assert b.id not in last
+    assert await svc.last_reports([]) == {}
+
+
+async def test_get_report_limit(svc):
+    h = await svc.create("u1", "p1", "A", "b")
+    for i in range(15):
+        await svc.report("u1", h.id, "w1", f"r{i}")
+    found = await svc.get("u1", h.id)
+    assert found is not None and len(found[1]) == 10
+    found = await svc.get("u1", h.id, report_limit=100)
+    assert found is not None and len(found[1]) == 15
