@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ from qdrant_client.models import (
     Range,
 )
 
-from src.core.bm25 import BM25Index, STOP_WORDS
+from src.core.bm25 import STOP_WORDS, BM25Index
 from src.core.chunker import RecursiveChunker
 from src.core.embedder import get_embedder
 from src.core.staleness import _hash_file
@@ -533,7 +533,7 @@ class IndexService:
 
             # Embed only new/changed chunks (compare against stored hashes)
             existing = await self._existing_chunk_hashes(user_id, rel_path)
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             total = len(chunks)
             to_embed: list[int] = []
             for i, c in enumerate(chunks):
@@ -666,7 +666,8 @@ def _extract_identifiers(query: str) -> list[str]:
         return quoted[:_MAX_IDENTIFIERS]
     idents = [
         t for t in _IDENT_RE.findall(query)
-        if t.lower() not in STOP_WORDS and ("_" in t or any(c.isupper() for c in t[1:]) or len(t) > 6)
+        if t.lower() not in STOP_WORDS
+        and ("_" in t or any(c.isupper() for c in t[1:]) or len(t) > 6)
     ]
     idents.sort(key=len, reverse=True)
     return idents[:_MAX_IDENTIFIERS]

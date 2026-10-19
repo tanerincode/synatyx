@@ -27,7 +27,7 @@ Messages:
 
 Respond in this exact format:
 SUMMARY: <summary text>
-ENTITIES: <json array>"""
+ENTITIES: <json array>"""  # noqa: E501
 
 
 @dataclass
@@ -42,7 +42,7 @@ class SummarizeService:
         self,
         redis: RedisStorage,
         postgres: PostgresStorage,
-        store: "StoreService | None" = None,
+        store: StoreService | None = None,
     ) -> None:
         self._redis = redis
         self._postgres = postgres
@@ -138,7 +138,9 @@ class SummarizeService:
             self._safe_summarize(session_id, user_id, max_tokens, focus)
         )
 
-    async def _safe_summarize(self, session_id: str, user_id: str, max_tokens: int, focus: str | None) -> None:
+    async def _safe_summarize(
+        self, session_id: str, user_id: str, max_tokens: int, focus: str | None
+    ) -> None:
         try:
             await self.summarize(session_id, user_id, max_tokens, focus)
         except Exception:
@@ -146,8 +148,9 @@ class SummarizeService:
 
     async def _call_llm(self, prompt: str) -> tuple[str, list[KeyEntity]]:
         """Call the configured LLM to produce summary and entities."""
-        from src.config import settings
         import json
+
+        from src.config import settings
 
         if settings.embedding.provider == "openai" and settings.embedding.openai_api_key:
             from openai import AsyncOpenAI

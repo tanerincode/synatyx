@@ -159,7 +159,12 @@ def fit_entries(entries: list[BudgetEntry], budget_tokens: int) -> SectionResult
     included = 0
     for entry in entries:
         if used + entry.tokens > budget_tokens:
-            if not selected and budget_tokens > 0 and entry.truncatable and entry.raw_content is not None:
+            if (
+                not selected
+                and budget_tokens > 0
+                and entry.truncatable
+                and entry.raw_content is not None
+            ):
                 payload = entry.materialize()
                 payload["content"] = entry.raw_content[: budget_tokens * 4].rstrip() + "…"
                 payload["truncated"] = True

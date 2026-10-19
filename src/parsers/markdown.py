@@ -25,7 +25,7 @@ class MarkdownParser(BaseParser):
         current_title = "Introduction"
         current_lines: list[str] = []
 
-        def _flush():
+        def _flush() -> None:
             content = "\n".join(current_lines).strip()
             if content:
                 chunks.append(ParsedChunk(

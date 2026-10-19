@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.config import TrackingSettings
@@ -41,7 +41,7 @@ class FakeStore:
 
 
 def _ts(minutes_ago: float) -> str:
-    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+    return (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
 
 
 def _tracker(**overrides: Any) -> tuple[SessionTracker, FakeRedisTrace]:

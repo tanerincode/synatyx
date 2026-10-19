@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Handoffs
+
+Briefs between agents now live in Synatyx as versioned "handoffs".
+
+- Six tools: `context_handoff_create`, `context_handoff_get`, `context_handoff_list`, `context_handoff_update`, `context_handoff_report`, `context_handoff_mine`. List and mine return metadata only; `get` returns the body and the latest 10 reports
+- `context_handoff_create` takes an optional `created_by` and `context_handoff_update` an optional `author` (default: the user id), recorded on the new version
+- Statuses: draft, assigned, in_progress, blocked, done, cancelled. A body change creates a new version
+- Tasks gain an `assignee` (stored, filterable, settable on update)
+- `context_brief` takes an optional `assignee` and then adds an `open_handoffs` section (assigned, in_progress, blocked; no body) within its own 5% budget share; without it the output is unchanged
+- Migration: new `handoffs`, `handoff_versions` and `handoff_reports` tables and `tasks.assignee`; run `alembic upgrade head`
+
 ## [v0.2.0] — 2026-08-03
 
 ### 📦 Context Engine

@@ -1,13 +1,13 @@
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from src.core.score import (
-    _recency_score,
+    DROP_THRESHOLD,
     _cosine_similarity,
     _importance_score,
+    _recency_score,
     _user_signal_score,
     score_item,
     score_items,
-    DROP_THRESHOLD,
 )
 from src.models.context import ContextItem, ScoredContextItem
 from src.models.memory_layer import MemoryLayer
@@ -39,18 +39,18 @@ def _make_item(
 # ── Recency ───────────────────────────────────────────────────────────────────
 
 def test_recency_score_just_created():
-    score = _recency_score(datetime.now(timezone.utc))
+    score = _recency_score(datetime.now(UTC))
     assert score > 0.9
 
 
 def test_recency_score_one_day_ago():
-    ts = datetime.now(timezone.utc) - timedelta(days=1)
+    ts = datetime.now(UTC) - timedelta(days=1)
     score = _recency_score(ts)
     assert 0.45 < score < 0.55  # ~0.5 after 24h half-life
 
 
 def test_recency_score_old_item():
-    ts = datetime.now(timezone.utc) - timedelta(days=30)
+    ts = datetime.now(UTC) - timedelta(days=30)
     score = _recency_score(ts)
     assert score < 0.05
 

@@ -59,14 +59,16 @@ class RedisStorage:
     def _budget_key(self, user_id: str, session_id: str) -> str:
         return f"{BUDGET_KEY_PREFIX}:{user_id}:{session_id}"
 
-    async def budget_set(self, user_id: str, session_id: str, layer: MemoryLayer, tokens: int) -> None:
+    async def budget_set(
+        self, user_id: str, session_id: str, layer: MemoryLayer, tokens: int
+    ) -> None:
         key = self._budget_key(user_id, session_id)
         await self._client.hset(key, layer.value, tokens)
 
     async def budget_get(self, user_id: str, session_id: str) -> dict[str, int]:
         key = self._budget_key(user_id, session_id)
         raw = await self._client.hgetall(key)
-        return {k: int(v) for k, v in raw.items()}
+        return {k: int(v) for k, v in raw.items()}  # type: ignore[misc]  # decode_responses=True gives str keys
 
     async def budget_total(self, user_id: str, session_id: str) -> int:
         budget = await self.budget_get(user_id, session_id)
@@ -103,7 +105,7 @@ class RedisStorage:
     async def project_get(self, user_id: str) -> str | None:
         """Return the active project slug for a user, or None if not set."""
         key = f"{PROJECT_KEY_PREFIX}:{user_id}"
-        return await self._client.get(key)
+        return await self._client.get(key)  # type: ignore[return-value]  # decode_responses=True gives str
 
     # -------------------------------------------------------------------------
     # Session Activity Traces (server-side implicit capture)

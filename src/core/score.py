@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.models.context import ContextItem, ScoredContextItem
-
 
 # Weights for combining score factors (must sum to 1.0)
 WEIGHT_RECENCY = 0.25
@@ -21,7 +20,7 @@ def _recency_score(created_at: datetime) -> float:
     Recency score: 1.0 / (1 + seconds_since_creation)
     Normalized to [0, 1] using a 24h half-life.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     seconds = max(0.0, (now - created_at).total_seconds())
     return 1.0 / (1.0 + seconds / 86_400)
 
@@ -88,7 +87,9 @@ def score_item(
         + WEIGHT_USER_SIGNAL * user_signal
     )
 
-    _scored_fields = {"recency_score", "semantic_score", "importance_score", "user_signal_score", "score"}
+    _scored_fields = {
+        "recency_score", "semantic_score", "importance_score", "user_signal_score", "score",
+    }
     base = item.model_dump(exclude=_scored_fields)
     return ScoredContextItem(
         **base,

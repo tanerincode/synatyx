@@ -1,9 +1,13 @@
 import pytest
+
 from src.core.budget import (
-    BudgetManager,
-    BudgetAllocation,
-    LAYER_ALLOCATIONS,
     FIXED_ALLOCATIONS,
+    LAYER_ALLOCATIONS,
+    BudgetAllocation,
+    BudgetEntry,
+    BudgetManager,
+    SectionBudgeter,
+    fit_entries,
 )
 from src.models.context import ContextItem
 from src.models.memory_layer import MemoryLayer
@@ -125,7 +129,6 @@ def test_estimate_tokens_correct(manager):
 
 # ── fit_entries / SectionBudgeter ────────────────────────────────────────────
 
-from src.core.budget import BudgetEntry, SectionBudgeter, fit_entries
 
 
 def _entry(content: str, **payload) -> BudgetEntry:

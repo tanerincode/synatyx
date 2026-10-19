@@ -9,7 +9,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 
 
-class RunMode(str, Enum):
+class RunMode(str, Enum):  # noqa: UP042  # StrEnum changes str() output
     MCP = "mcp"           # stdio MCP server only (default)
     MCP_HTTP = "mcp-http" # FastMCP over HTTP/SSE — for server deployment
     GC = "gc"             # Garbage collection daemon
@@ -21,14 +21,24 @@ class QdrantSettings(BaseSettings):
     collection_name: str = "ctx_default"
     vector_size: int = 1536
 
-    model_config = SettingsConfigDict(env_prefix="QDRANT_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="QDRANT_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class RedisSettings(BaseSettings):
     url: str = "redis://localhost:6379"
     l1_max_messages: int = 20
 
-    model_config = SettingsConfigDict(env_prefix="REDIS_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="REDIS_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class PostgresSettings(BaseSettings):
@@ -42,19 +52,30 @@ class PostgresSettings(BaseSettings):
     def dsn(self) -> str:
         return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.db}"
 
-    model_config = SettingsConfigDict(env_prefix="POSTGRES_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="POSTGRES_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 
 class EmbeddingSettings(BaseSettings):
     provider: str = "openai"  # "openai" | "sentence-transformers"
     # The embedding model name — works for any provider:
-    #   openai:                 text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
+    #   openai:                 text-embedding-3-small, text-embedding-3-large,
+    #                           text-embedding-ada-002
     #   sentence-transformers:  all-MiniLM-L6-v2, all-mpnet-base-v2, …
     model: str = "text-embedding-3-small"
     openai_api_key: str = ""
 
-    model_config = SettingsConfigDict(env_prefix="EMBEDDING_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="EMBEDDING_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class AuthSettings(BaseSettings):
@@ -69,7 +90,12 @@ class AuthSettings(BaseSettings):
     def enabled(self) -> bool:
         return bool(self.admin_key)
 
-    model_config = SettingsConfigDict(env_prefix="AUTH_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="AUTH_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class OAuthSettings(BaseSettings):
@@ -141,7 +167,12 @@ class GCSettings(BaseSettings):
         }
     )
 
-    model_config = SettingsConfigDict(env_prefix="GC_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="GC_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 class ConsolidationSettings(BaseSettings):
@@ -156,7 +187,10 @@ class ConsolidationSettings(BaseSettings):
     max_merges_per_run: int = 20
 
     model_config = SettingsConfigDict(
-        env_prefix="CONSOLIDATION_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
+        env_prefix="CONSOLIDATION_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
 

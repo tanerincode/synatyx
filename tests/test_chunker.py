@@ -1,5 +1,6 @@
 import pytest
-from src.core.chunker import RecursiveChunker, Chunk, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
+
+from src.core.chunker import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, Chunk, RecursiveChunker
 
 
 @pytest.fixture
@@ -43,7 +44,6 @@ def test_overlap_content_continuity(chunker):
     if len(chunks) > 1:
         for i in range(len(chunks) - 1):
             tail = chunks[i].text[-chunker.chunk_overlap:]
-            head = chunks[i + 1].text[:chunker.chunk_overlap]
             # Overlap means tail words appear at the start of next chunk
             assert any(word in chunks[i + 1].text for word in tail.split()[:3])
 

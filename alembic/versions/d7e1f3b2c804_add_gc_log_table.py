@@ -5,17 +5,17 @@ Revises: f3a9c812d047
 Create Date: 2026-03-22 15:00:00.000000
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'd7e1f3b2c804'
-down_revision: Union[str, None] = 'f3a9c812d047'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'f3a9c812d047'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -28,7 +28,8 @@ def upgrade() -> None:
         sa.Column('memory_layer', sa.String(), nullable=False),
         sa.Column('action', sa.String(), nullable=False),  # "deprecated" | "deleted"
         sa.Column('reason', sa.String(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'),
+                  nullable=False),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index(op.f('ix_gc_log_run_id'), 'gc_log', ['run_id'], unique=False)

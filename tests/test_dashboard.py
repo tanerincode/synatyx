@@ -7,10 +7,15 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from src.models.context import ContextItem
+from src.models.handoff import HandoffStatus
 from src.models.memory_layer import MemoryLayer
 from src.models.relation import MemoryRelation
 from src.models.task import Task, TaskPriority, TaskStatus
 from src.transports.mcp.dashboard import (
+    api_brief_create,
+    api_brief_detail,
+    api_brief_update,
+    api_briefs,
     api_graph,
     api_index_chunks,
     api_index_graph,
@@ -528,3 +533,195 @@ def test_usage_project_filter_and_validation() -> None:
 def test_usage_503_before_lifespan() -> None:
     app = Starlette(routes=[Route("/dashboard/api/usage", api_usage)])
     assert TestClient(app).get("/dashboard/api/usage").status_code == 503
+
+
+# ── briefs ───────────────────────────────────────────────────────────────────
+
+
+def _briefs_client() -> tuple[TestClient, Any]:
+    from tests.test_handoff import FakeHandoffStorage
+
+    storage = FakeHandoffStorage()
+    app = Starlette(
+        routes=[
+            Route("/dashboard/api/briefs", api_briefs),
+            Route("/dashboard/api/briefs", api_brief_create, methods=["POST"]),
+            Route("/dashboard/api/briefs/{id}", api_brief_detail),
+            Route("/dashboard/api/briefs/{id}", api_brief_update, methods=["PATCH"]),
+        ]
+    )
+    app.state.qdrant = FakeQdrant({"ctx_synatyx": []})
+    app.state.postgres = storage
+    return TestClient(app), storage
+
+
+async def _seed_briefs(storage: Any) -> dict[str, str]:
+    from src.core.handoff import HandoffService
+
+    svc = HandoffService(storage)
+    a = await svc.create("u1", "synatyx", "Alpha", "SECRET alpha body", assignee="w1")
+    b = await svc.create("u2", "kai", "Beta", "SECRET beta body")
+    await svc.update("u1", a.id, body="SECRET alpha v2", author="kai")
+    await svc.report("u1", a.id, "w1", "started", status=HandoffStatus.IN_PROGRESS)
+    return {"a": a.id, "b": b.id}
+
+
+def test_briefs_list_shape_no_body_cross_user() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+
+    res = client.get("/dashboard/api/briefs")
+    assert res.status_code == 200
+    briefs = {b["id"]: b for b in res.json()["briefs"]}
+    assert set(briefs) == {ids["a"], ids["b"]}
+    alpha = briefs[ids["a"]]
+    for key in ("id", "title", "project", "assignee", "status", "version",
+                "updated_at", "last_report"):
+        assert key in alpha
+    assert alpha["status"] == "in_progress"
+    assert alpha["version"] == 2
+    assert set(alpha["last_report"]) == {"text", "agent", "at"}
+    assert alpha["last_report"]["text"] == "started"
+    assert briefs[ids["b"]]["last_report"] is None
+    assert "SECRET" not in res.text
+    assert "body" not in alpha
+
+
+def test_briefs_list_filters() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+
+    def got(**params: str) -> set[str]:
+        res = client.get("/dashboard/api/briefs", params=params)
+        return {b["id"] for b in res.json()["briefs"]}
+
+    assert got(user="u1") == {ids["a"]}
+    assert got(project="kai") == {ids["b"]}
+    assert got(assignee="w1") == {ids["a"]}
+    assert got(status="draft") == {ids["b"]}
+    assert got(status="all") == {ids["a"], ids["b"]}
+    assert client.get("/dashboard/api/briefs", params={"status": "bogus"}).status_code == 400
+
+
+def test_brief_detail_has_body_reports_versions() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+
+    res = client.get(f"/dashboard/api/briefs/{ids['a']}", params={"user": "u1"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["body"] == "SECRET alpha v2"
+    assert data["reports"][0]["text"] == "started"
+    assert data["reports"][0]["status"] == "in_progress"
+    assert set(data["reports"][0]) == {"at", "agent", "status", "text"}
+    assert [v["version"] for v in data["versions"]] == [2, 1]
+    assert data["versions"][0]["author"] == "kai"
+    assert set(data["versions"][0]) == {"version", "at", "author"}
+    assert "SECRET alpha body" not in res.text  # old bodies are not exposed
+
+
+def test_brief_detail_requires_user_and_404s() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+
+    assert client.get(f"/dashboard/api/briefs/{ids['a']}").status_code == 400
+    assert client.get("/dashboard/api/briefs/nope", params={"user": "u1"}).status_code == 404
+    # another user's brief is invisible
+    assert client.get(f"/dashboard/api/briefs/{ids['a']}", params={"user": "u2"}).status_code == 404
+
+
+def test_brief_create() -> None:
+    client, _ = _briefs_client()
+
+    res = client.post(
+        "/dashboard/api/briefs",
+        json={"user": "u1", "project": "synatyx", "title": "New one",
+              "body": "# Do it", "assignee": "w2"},
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["title"] == "New one"
+    assert data["status"] == "assigned"
+    assert data["body"] == "# Do it"
+    assert data["versions"][0]["version"] == 1
+
+    dup = client.post(
+        "/dashboard/api/briefs",
+        json={"user": "u1", "project": "synatyx", "title": "New one", "body": "x"},
+    )
+    assert dup.status_code == 409
+
+
+def test_brief_mutations_require_user_and_valid_input() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+
+    assert client.post(
+        "/dashboard/api/briefs", json={"project": "p", "title": "t"}
+    ).status_code == 400
+    assert client.patch(
+        f"/dashboard/api/briefs/{ids['a']}", json={"title": "x"}
+    ).status_code == 400
+    assert client.post("/dashboard/api/briefs", json={"user": "u1"}).status_code == 400
+    assert client.post("/dashboard/api/briefs", content="not json").status_code == 400
+    assert client.patch(
+        f"/dashboard/api/briefs/{ids['a']}", json={"user": "u1", "status": "bogus"}
+    ).status_code == 400
+
+
+def test_brief_update_and_404() -> None:
+    import asyncio
+
+    client, storage = _briefs_client()
+    ids = asyncio.run(_seed_briefs(storage))
+
+    res = client.patch(
+        f"/dashboard/api/briefs/{ids['a']}",
+        json={"user": "u1", "status": "blocked", "body": "SECRET alpha v3",
+              "title": "Alpha!", "assignee": "w9"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert (data["status"], data["title"], data["assignee"]) == ("blocked", "Alpha!", "w9")
+    assert data["version"] == 3
+    assert data["versions"][0]["author"] == "dashboard"
+
+    assert client.patch(
+        "/dashboard/api/briefs/nope", json={"user": "u1", "title": "x"}
+    ).status_code == 404
+    assert client.patch(
+        f"/dashboard/api/briefs/{ids['a']}", json={"user": "u2", "title": "x"}
+    ).status_code == 404
+
+
+def test_brief_project_is_slugified_on_create_and_list() -> None:
+    client, _ = _briefs_client()
+
+    res = client.post(
+        "/dashboard/api/briefs",
+        json={"user": "u1", "project": "My Project", "title": "Cased"},
+    )
+    assert res.status_code == 201
+    assert res.json()["project"] == "my_project"
+
+    for project in ("my_project", "My Project", "MY_PROJECT"):
+        listed = client.get("/dashboard/api/briefs", params={"project": project})
+        assert [b["title"] for b in listed.json()["briefs"]] == ["Cased"], project
+
+    res = client.post(
+        "/dashboard/api/briefs",
+        json={"user": "u1", "project": "Synatyx", "title": "Upper"},
+    )
+    for project in ("synatyx", "Synatyx"):
+        listed = client.get("/dashboard/api/briefs", params={"project": project})
+        assert [b["title"] for b in listed.json()["briefs"]] == ["Upper"], project

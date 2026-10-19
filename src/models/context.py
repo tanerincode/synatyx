@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -23,8 +23,8 @@ class ContextItem(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     is_pinned: bool = False
     is_deprecated: bool = False
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("content")
     @classmethod
@@ -42,7 +42,7 @@ class ContextItem(BaseModel):
         self.is_deprecated = True
         if reason:
             self.metadata["deprecated_reason"] = reason
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
     model_config = {"frozen": False}
 

@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class MemoryLayer(str, Enum):
+class MemoryLayer(str, Enum):  # noqa: UP042  # StrEnum changes str() output
     """
     Memory layer hierarchy for the Synatyx Context Engine.
 

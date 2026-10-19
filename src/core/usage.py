@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextvars import ContextVar
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.config import UsageSettings
@@ -76,12 +76,12 @@ class UsageRecorder:
         days: int = 30,
         group_by: str = "tool",
     ) -> dict[str, Any]:
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since = datetime.now(UTC) - timedelta(days=days)
         totals = await self._postgres.usage_totals(user_id=user_id, project=project, since=since)
         breakdown = await self._postgres.usage_stats(
             user_id=user_id, project=project, since=since, group_by=group_by,
         )
-        totals["embedding_cost_usd"] = round(
+        totals["embedding_cost_usd"] = round(  # type: ignore[assignment]  # totals typed dict[str, int]
             totals["embedding_tokens"] / 1_000_000 * self._config.embedding_price_per_mtok, 6
         )
         return {

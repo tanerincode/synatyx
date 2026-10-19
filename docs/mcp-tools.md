@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-Synatyx exposes **34 MCP tools**. This file is generated from `src/transports/mcp/tools.json` by `scripts/gen_tool_docs.py` — edit the JSON, then regenerate.
+Synatyx exposes **40 MCP tools**. This file is generated from `src/transports/mcp/tools.json` by `scripts/gen_tool_docs.py` — edit the JSON, then regenerate.
 
 ## Context Assembly
 
@@ -15,6 +15,7 @@ One-call session-start digest — call this FIRST in every new conversation inst
 | `project` | string | no | Project slug — scopes the whole brief to this project only (memories, recent changes, attempts, open_tasks). Falls back to session_id, then the active project (optional) |
 | `max_tokens` | integer | no | Token budget for the whole briefing (default: 2000) |
 | `recent_days` | integer | no | Window for the recent_changes section in days (default: 7) |
+| `assignee` | string | no | Agent name (e.g. synatyx-lead): adds an open_handoffs section listing that assignee's open handoffs, metadata only (optional) |
 
 ### `context_pack`
 
@@ -299,6 +300,7 @@ Add a new task to remember for later. Use this when the user mentions something 
 | `description` | string | no | Detailed description (optional) |
 | `priority` | `low` \| `medium` \| `high` | no | Priority (default: medium) |
 | `project` | string | no | Project name for filtering (optional) |
+| `assignee` | string | no | Who the task is assigned to, e.g. an agent name like 'synatyx-w2' (optional) |
 
 ### `context_task_list`
 
@@ -311,6 +313,7 @@ List pending or all tasks. Call this at the start of a session to see what work 
 | `priority` | `low` \| `medium` \| `high` | no | Filter by priority (optional) |
 | `project` | string | no | Filter by project (optional) |
 | `limit` | integer | no | Max tasks to return (default: 50) |
+| `assignee` | string | no | Only tasks assigned to this assignee (optional) |
 
 ### `context_task_update`
 
@@ -324,6 +327,85 @@ Update a task — change its status, priority, title, or description.
 | `priority` | `low` \| `medium` \| `high` | no | New priority |
 | `title` | string | no | Updated title |
 | `description` | string | no | Updated description |
+| `assignee` | string | no | Reassign the task to this assignee (optional; omit to leave unchanged) |
+
+## Handoffs
+
+### `context_handoff_create`
+
+Create a handoff: a versioned brief that one agent writes for another (or for a later session) to pick up. Call it when you are delegating work or parking work with full instructions. The body is the full brief in markdown. Status defaults to 'assigned' when an assignee is given, else 'draft'. Returns the handoff metadata (id, slug, version, status, assignee) without the body. Errors if the slug is already used in that project or parent_id does not exist.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `project` | string | yes | Project slug the handoff belongs to |
+| `title` | string | yes | Short title |
+| `body` | string | yes | Full brief in markdown |
+| `assignee` | string | no | Agent or person who should do the work (optional) |
+| `slug` | string | no | Stable human-readable key, unique per project (default: slugified title) |
+| `parent_id` | string | no | Handoff id this one continues or splits from (optional) |
+| `status` | `draft` \| `assigned` \| `in_progress` \| `blocked` \| `done` \| `cancelled` | no | Initial status (default: assigned if assignee is set, else draft) |
+| `task_ids` | array | no | Ids of related tasks from context_task_add (optional) |
+| `created_by` | string | no | Your session name, e.g. synatyx-lead (default: user_id); recorded as the author of the first version |
+
+### `context_handoff_get`
+
+Fetch one handoff in full: the current body, its metadata and the latest 10 reports (newest first). Call it when you are about to start work on a handoff or need its complete text. Identify it by id, or by project + slug. Pass version to read an earlier body. Returns {handoff, reports}, or an error if it is not found.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `id` | string | no | Handoff id (use this or project + slug) |
+| `project` | string | no | Project slug, used together with slug |
+| `slug` | string | no | Handoff slug, used together with project |
+| `version` | integer | no | Return this earlier version of the body (default: latest) |
+
+### `context_handoff_list`
+
+List handoffs, most recently updated first, filtered by project, assignee and/or status. Call it to survey what exists. Returns metadata only (id, slug, title, status, assignee, version, updated_at) and never the body; use context_handoff_get for the body.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `project` | string | no | Filter by project (optional) |
+| `assignee` | string | no | Filter by assignee (optional) |
+| `status` | `draft` \| `assigned` \| `in_progress` \| `blocked` \| `done` \| `cancelled` | no | Filter by status (optional) |
+
+### `context_handoff_update`
+
+Edit a handoff: change its body, title, status or assignee. A body that differs from the current one creates a new version; an identical body does not. Call it when the brief changes or the work is reassigned. Returns the updated metadata (without the body), or an error if the handoff is not found.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `id` | string | yes | Handoff id |
+| `body` | string | no | New full body (optional) |
+| `title` | string | no | New title (optional) |
+| `status` | `draft` \| `assigned` \| `in_progress` \| `blocked` \| `done` \| `cancelled` | no | New status (optional) |
+| `assignee` | string | no | New assignee (optional) |
+| `author` | string | no | Your session name, e.g. synatyx-lead (default: user_id); recorded as the author of a new version |
+
+### `context_handoff_report`
+
+Append a progress report to a handoff, optionally moving its status in the same step (e.g. 'done' or 'blocked'). Call it when you finish, get blocked, or have a result the delegator should see. Returns the saved report and the handoff's status afterwards, or an error if the handoff is not found.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `id` | string | yes | Handoff id |
+| `agent` | string | yes | Name of the agent reporting |
+| `text` | string | yes | The report |
+| `status` | `draft` \| `assigned` \| `in_progress` \| `blocked` \| `done` \| `cancelled` | no | Status to move the handoff to (optional) |
+
+### `context_handoff_mine`
+
+List the open handoffs (assigned, in_progress, blocked) for one assignee. Call it at session start to find your own work. Returns metadata only, never the body; use context_handoff_get for the body.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `user_id` | string | yes | User identifier |
+| `assignee` | string | yes | Your agent name |
+| `project` | string | no | Restrict to one project (optional) |
 
 ## Skills
 

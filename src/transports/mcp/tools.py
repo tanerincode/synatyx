@@ -11,7 +11,8 @@ _TOOLS_PATH = Path(__file__).parent / "tools.json"
 @lru_cache(maxsize=1)
 def load_tool_definitions() -> list[dict[str, Any]]:
     """Load MCP tool definitions from tools.json. Cached after first load."""
-    return json.loads(_TOOLS_PATH.read_text(encoding="utf-8"))
+    tools: list[dict[str, Any]] = json.loads(_TOOLS_PATH.read_text(encoding="utf-8"))
+    return tools
 
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = load_tool_definitions()

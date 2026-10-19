@@ -513,6 +513,62 @@ class PostgresStorage:
             result = await session.execute(stmt)
             return [self._row_to_handoff(r) for r in result.scalars().all()]
 
+    async def handoff_list_all(
+        self,
+        *,
+        project: str | None = None,
+        assignee: str | None = None,
+        statuses: list[HandoffStatus] | None = None,
+        limit: int = 50,
+    ) -> list[Handoff]:
+        """List handoffs across all users — dashboard use only."""
+        async with self._session_factory() as session:
+            stmt = select(HandoffRow)
+            if project is not None:
+                stmt = stmt.where(HandoffRow.project == project)
+            if assignee is not None:
+                stmt = stmt.where(HandoffRow.assignee == assignee)
+            if statuses:
+                stmt = stmt.where(HandoffRow.status.in_([s.value for s in statuses]))
+            stmt = stmt.order_by(HandoffRow.updated_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._row_to_handoff(r) for r in result.scalars().all()]
+
+    async def handoff_versions(self, handoff_id: str) -> list[dict[str, Any]]:
+        """Version history, newest first, without the bodies."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(
+                    HandoffVersionRow.version,
+                    HandoffVersionRow.author,
+                    HandoffVersionRow.created_at,
+                )
+                .where(HandoffVersionRow.handoff_id == handoff_id)
+                .order_by(HandoffVersionRow.version.desc())
+            )
+            result = await session.execute(stmt)
+            return [
+                {"version": v, "author": a, "created_at": c} for v, a, c in result.all()
+            ]
+
+    async def handoff_last_reports(
+        self, handoff_ids: list[str]
+    ) -> dict[str, HandoffReport]:
+        """Newest report per handoff in one query (no N+1)."""
+        if not handoff_ids:
+            return {}
+        async with self._session_factory() as session:
+            stmt = (
+                select(HandoffReportRow)
+                .where(HandoffReportRow.handoff_id.in_(handoff_ids))
+                .distinct(HandoffReportRow.handoff_id)
+                .order_by(HandoffReportRow.handoff_id, HandoffReportRow.created_at.desc())
+            )
+            result = await session.execute(stmt)
+            return {
+                r.handoff_id: self._row_to_handoff_report(r) for r in result.scalars().all()
+            }
+
     async def handoff_save(
         self, h: Handoff, new_version: HandoffVersion | None = None
     ) -> Handoff:

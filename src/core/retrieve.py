@@ -5,10 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from src.core.bm25 import BM25Index
-from src.core.budget import BudgetAllocation, BudgetManager
+from src.core.budget import BudgetManager
 from src.core.embedder import get_embedder
 from src.core.mmr import apply_mmr, diversify_by_source
 from src.core.score import score_items
@@ -17,6 +15,8 @@ from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
 from src.storage.redis import RedisStorage
+
+logger = logging.getLogger(__name__)
 
 # Text-relevance fusion weights (from CTX-EG: 0.6 dense + 0.4 BM25)
 DENSE_WEIGHT = 0.6
@@ -54,7 +54,7 @@ def empty_retrieve_diagnostics(
     filters = [
         name for name, value in (("session_id", session_id), ("project", project)) if value
     ]
-    layer_names = ", ".join(l.value for l in requested_layers) or "none"
+    layer_names = ", ".join(layer.value for layer in requested_layers) or "none"
 
     if total_for_user == 0:
         hint = (
@@ -77,7 +77,7 @@ def empty_retrieve_diagnostics(
         "total_items_for_user": total_for_user,
         "items_by_layer": items_by_layer,
         "filters_applied": filters,
-        "requested_layers": [l.value for l in requested_layers],
+        "requested_layers": [layer.value for layer in requested_layers],
         "hint": hint,
     }
 
@@ -137,7 +137,7 @@ class RetrieveService:
         # Step 2 — Fetch 3x candidates from Qdrant for better BM25 + MMR pool.
         # Layer searches are independent — run them concurrently.
         candidate_k = top_k * 3
-        vector_layers = [l for l in layers if l != MemoryLayer.L1]
+        vector_layers = [layer for layer in layers if layer != MemoryLayer.L1]
         layer_results = await asyncio.gather(*(
             self._qdrant.search(
                 query_vector=query_embedding,
@@ -169,7 +169,9 @@ class RetrieveService:
 
         if not unique_items:
             allocation = self._budget.get_allocation()
-            return RetrieveResult(context_items=[], total_tokens=0, suggested_budget=allocation.to_dict())
+            return RetrieveResult(
+                context_items=[], total_tokens=0, suggested_budget=allocation.to_dict()
+            )
 
         # Step 3 — BM25 re-score all candidates
         bm25_index = BM25Index([item.content for item in unique_items])
@@ -193,13 +195,13 @@ class RetrieveService:
         scored.sort(key=lambda x: x.score, reverse=True)
 
         # Step 5 — Enforce token budget per layer
-        by_layer: dict[MemoryLayer, list[ScoredContextItem]] = {l: [] for l in MemoryLayer}
+        by_layer: dict[MemoryLayer, list[ScoredContextItem]] = {layer: [] for layer in MemoryLayer}
         for item in scored:
             by_layer[item.memory_layer].append(item)
 
         budget_trimmed: list[ScoredContextItem] = []
         for layer in MemoryLayer:
-            trimmed = self._budget.enforce(by_layer[layer], layer)
+            trimmed = self._budget.enforce(by_layer[layer], layer)  # type: ignore[arg-type]  # list invariance
             budget_trimmed.extend(trimmed)  # type: ignore[arg-type]
 
         budget_trimmed.sort(key=lambda x: x.score, reverse=True)
@@ -215,8 +217,8 @@ class RetrieveService:
         else:
             final_items = budget_trimmed[:top_k]
 
-        allocation: BudgetAllocation = self._budget.get_allocation()
-        total_tokens = self._budget.estimate_tokens(final_items)
+        allocation = self._budget.get_allocation()
+        total_tokens = self._budget.estimate_tokens(final_items)  # type: ignore[arg-type]  # list invariance
 
         return RetrieveResult(
             context_items=final_items,

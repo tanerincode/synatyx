@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(str, Enum):  # noqa: UP042  # StrEnum changes str() output
     ACTIVE = "active"
     SUMMARIZED = "summarized"
     CLOSED = "closed"
@@ -32,19 +33,19 @@ class Session(BaseModel):
     key_entities: list[KeyEntity] = Field(default_factory=list)
     token_count: int = 0
     message_count: int = 0
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     summarized_at: datetime | None = None
-    metadata: dict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def touch(self) -> None:
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
     def mark_summarized(self, summary: str, key_entities: list[KeyEntity]) -> None:
         self.summary = summary
         self.key_entities = key_entities
         self.status = SessionStatus.SUMMARIZED
-        self.summarized_at = datetime.now(timezone.utc)
+        self.summarized_at = datetime.now(UTC)
         self.touch()
 
     model_config = {"frozen": False}

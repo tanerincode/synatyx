@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from typing import Any
 
 from src.models.handoff import (
     OPEN_HANDOFF_STATUSES,
@@ -65,6 +66,7 @@ class HandoffService:
         project: str | None = None,
         slug: str | None = None,
         version: int | None = None,
+        report_limit: int = 10,
     ) -> tuple[Handoff, list[HandoffReport]] | None:
         handoff = await self._storage.handoff_get(
             user_id, handoff_id, project=project, slug=slug
@@ -76,7 +78,7 @@ class HandoffService:
             if row is None:
                 raise ValueError(f"version {version} of handoff '{handoff.id}' not found")
             handoff = handoff.model_copy(update={"body": row.body, "version": row.version})
-        reports = await self._storage.handoff_reports(handoff.id, limit=10)
+        reports = await self._storage.handoff_reports(handoff.id, limit=report_limit)
         return handoff, reports
 
     async def list(
@@ -151,3 +153,28 @@ class HandoffService:
             assignee=assignee,
             statuses=list(OPEN_HANDOFF_STATUSES),
         )
+
+    async def list_all(
+        self,
+        *,
+        project: str | None = None,
+        assignee: str | None = None,
+        status: HandoffStatus | None = None,
+        limit: int = 50,
+    ) -> builtins.list[Handoff]:
+        """Across all users — dashboard use only."""
+        return await self._storage.handoff_list_all(
+            project=project,
+            assignee=assignee,
+            statuses=[status] if status else None,
+            limit=limit,
+        )
+
+    async def versions(self, handoff_id: str) -> builtins.list[dict[str, Any]]:
+        """Version history (version, author, created_at), no bodies."""
+        return await self._storage.handoff_versions(handoff_id)
+
+    async def last_reports(
+        self, handoff_ids: builtins.list[str]
+    ) -> dict[str, HandoffReport]:
+        return await self._storage.handoff_last_reports(handoff_ids)

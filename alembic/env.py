@@ -5,10 +5,10 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from src.config import settings
 
 # Import our ORM Base and all table models so autogenerate can detect them
 from src.storage.postgres import Base  # noqa: F401
-from src.config import settings
 
 # Alembic Config object
 config = context.config

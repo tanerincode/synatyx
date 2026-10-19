@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from src.core.budget import BudgetEntry, SectionBudgeter, estimate_tokens
@@ -56,7 +56,7 @@ _SECTION_TITLES: dict[str, str] = {
 
 def _created_at(item: ContextItem) -> datetime:
     ts = item.created_at
-    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
 
 
 def _dump_pack(item: ContextItem, score: float | None = None) -> dict[str, Any]:
@@ -85,7 +85,7 @@ def _dump_pack(item: ContextItem, score: float | None = None) -> dict[str, Any]:
 def _entry_for_item(item: ContextItem, score: float | None = None) -> BudgetEntry:
     return BudgetEntry(
         tokens=item.token_estimate,
-        payload=(lambda i=item, s=score: _dump_pack(i, s)),
+        payload=(lambda i=item, s=score: _dump_pack(i, s)),  # type: ignore[misc]  # mypy cannot infer lambda with defaults
         raw_content=item.content,
     )
 
@@ -355,7 +355,8 @@ class PackService:
         entries = []
         for t in ranked:
             desc = (t.description or "")[:200]
-            content = f"[{t.status.value if hasattr(t.status, 'value') else t.status}] {t.title}: {desc}"
+            status = t.status.value if hasattr(t.status, "value") else t.status
+            content = f"[{status}] {t.title}: {desc}"
             payload = {
                 "id": t.id,
                 "title": t.title,
@@ -460,7 +461,7 @@ def render_pack(
     Empty sections are omitted; every item carries provenance markers so the
     consuming agent can weigh trust (user-stated vs inferred vs ingested) and
     spot stale facts."""
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     header = (
         f"<!-- synatyx context_pack | project: {project or 'active'} "
         f"| ~{token_estimate} tokens | {today} -->"
@@ -484,7 +485,11 @@ def render_pack(
                     + (f" — {entry['description']}" if entry.get("description") else "")
                 )
             elif name == "skills":
-                suffix = "" if entry.get("body_included") else " (body omitted — fetch with context_skill_get)"
+                suffix = (
+                    ""
+                    if entry.get("body_included")
+                    else " (body omitted — fetch with context_skill_get)"
+                )
                 if entry.get("body_included"):
                     lines.append(f"- **{entry.get('name')}**:")
                     lines.append("")
@@ -500,7 +505,7 @@ def render_pack(
                 if snippet:
                     lang = entry.get("language", "")
                     lines.append(f"  ```{lang}")
-                    lines.extend(f"  {l}" for l in snippet.splitlines())
+                    lines.extend(f"  {line}" for line in snippet.splitlines())
                     lines.append("  ```")
             else:
                 content = str(entry.get("content", "")).replace("\n", " ").strip()

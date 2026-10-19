@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.core.pack import PackService, render_pack
@@ -30,7 +30,7 @@ def _scored(
         "content": content,
         "memory_layer": layer,
         "score": score,
-        "created_at": datetime.now(timezone.utc) - timedelta(days=1),
+        "created_at": datetime.now(UTC) - timedelta(days=1),
     }
     base.update(overrides)
     return ScoredContextItem(**base)
@@ -77,7 +77,9 @@ class FakePackStorage:
             out.append(item)
         return out[:top_k]
 
-    async def list_items(self, user_id: str, memory_layer=None, limit=50, **kw) -> list[ContextItem]:
+    async def list_items(
+        self, user_id: str, memory_layer=None, limit=50, **kw
+    ) -> list[ContextItem]:
         return [
             i for i in self._items
             if i.user_id == user_id and (memory_layer is None or i.memory_layer == memory_layer)
@@ -158,7 +160,14 @@ async def test_pack_sections_populated() -> None:
             _scored("tried X, failed", MemoryLayer.L2, metadata={"type": "attempt"}),
         ],
         tasks=[Task(user_id="u1", title="finish docs", status=TaskStatus.IN_PROGRESS)],
-        skills=[{"name": "reviewer", "description": "reviews code", "content": "full body", "score": 0.8}],
+        skills=[
+            {
+                "name": "reviewer",
+                "description": "reviews code",
+                "content": "full body",
+                "score": 0.8,
+            }
+        ],
     )
     result = await svc.pack("u1", "how is qdrant configured")
 
@@ -209,7 +218,11 @@ async def test_pack_relation_expansion_included() -> None:
             "importance": 0.7,
             "is_pinned": False,
             "metadata": {"origin": "agent-inferred"},
-            "via_relation": {"relation_type": "depends_on", "relation_id": "e1", "anchor_item_id": anchor.id},
+            "via_relation": {
+                "relation_type": "depends_on",
+                "relation_id": "e1",
+                "anchor_item_id": anchor.id,
+            },
         }],
     )
     result = await svc.pack("u1", "stripe webhooks")

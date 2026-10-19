@@ -55,7 +55,8 @@ class _FakePostgres:
         }
 
     async def usage_stats(self, group_by: str = "tool", **kwargs: Any) -> list[dict[str, Any]]:
-        return [{"tool": r["tool"], "calls": 1, **{k: r[k] for k in ("input_tokens", "output_tokens", "embedding_tokens")}} for r in self.rows]
+        keys = ("input_tokens", "output_tokens", "embedding_tokens")
+        return [{"tool": r["tool"], "calls": 1, **{k: r[k] for k in keys}} for r in self.rows]
 
 
 @pytest.mark.asyncio

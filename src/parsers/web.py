@@ -38,13 +38,17 @@ class WebParser(BaseParser):
             or soup.body
         )
 
-        page_title = soup.title.string.strip() if soup.title else source
+        page_title = (
+            soup.title.string.strip()  # type: ignore[union-attr]  # string may be None; behaviour kept
+            if soup.title
+            else source
+        )
 
         chunks: list[ParsedChunk] = []
         current_title = page_title
         current_parts: list[str] = []
 
-        def _flush():
+        def _flush() -> None:
             text = "\n".join(current_parts).strip()
             text = _BLANK.sub("\n\n", text)
             if text:
@@ -56,11 +60,11 @@ class WebParser(BaseParser):
 
         if main:
             for el in main.find_all(["h1", "h2", "h3", "h4", "p", "li", "pre", "code"]):
-                tag = el.name
+                tag_name = el.name
                 text = el.get_text(" ", strip=True)
                 if not text:
                     continue
-                if tag in ("h1", "h2", "h3", "h4"):
+                if tag_name in ("h1", "h2", "h3", "h4"):
                     _flush()
                     current_title = text
                     current_parts = []

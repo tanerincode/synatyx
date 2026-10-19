@@ -27,7 +27,7 @@ KNOWN_ORIGINS = (
 DEFAULT_ORIGIN = "agent-inferred"
 
 # Prompt injection patterns to sanitize from stored content
-_INJECTION_PATTERNS: list[re.Pattern] = [
+_INJECTION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
     re.compile(r"you\s+are\s+now\s+a", re.IGNORECASE),
     re.compile(r"(system|assistant|user)\s*:\s*", re.IGNORECASE),
@@ -289,6 +289,8 @@ class StoreService:
             # Postgres being down must not break L1 storage
             import logging
             logging.getLogger(__name__).warning(
-                "Could not upsert session %s for user %s — Postgres unavailable", session_id, user_id
+                "Could not upsert session %s for user %s — Postgres unavailable",
+                session_id,
+                user_id,
             )
 

@@ -47,6 +47,12 @@ Default stance: if you would tell a teammate “remember this for next time,” 
 - `context_task_add` — Add a new task to remember for later (title, description, priority, project)
 - `context_task_list` — List pending or all tasks; call at session start to see what work is waiting
 - `context_task_update` — Update a task's status, priority, title, or description
+- `context_handoff_create` — Create a handoff: a versioned brief one agent writes for another (or a later session); status defaults to assigned with an assignee, else draft
+- `context_handoff_get` — Fetch one handoff in full: current body, metadata and the latest 10 reports; pass `version` for an earlier body
+- `context_handoff_list` — List handoffs (metadata only, never the body) filtered by project, assignee and/or status
+- `context_handoff_update` — Edit a handoff's body, title, status or assignee; a changed body creates a new version
+- `context_handoff_report` — Append a progress report to a handoff, optionally moving its status (e.g. done, blocked)
+- `context_handoff_mine` — List the open handoffs (assigned, in_progress, blocked) for one assignee; call at session start to find your own work
 - `context_skill_store` — Save a skill definition
 - `context_skill_find` — RAG search for the best matching skill(s) for a given task
 - `context_skill_get` — Fetch a skill by exact name or slug

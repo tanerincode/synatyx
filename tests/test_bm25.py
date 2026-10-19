@@ -1,4 +1,3 @@
-import pytest
 from src.core.bm25 import (
     BM25Index,
     bm25_score,
