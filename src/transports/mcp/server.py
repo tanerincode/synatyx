@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from datetime import UTC
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -28,6 +29,10 @@ from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
 from src.storage.redis import RedisStorage
 from src.transports.mcp.tools import TOOL_DEFINITIONS
+
+if TYPE_CHECKING:
+    from src.core.index import IndexSearchService, IndexService
+    from src.core.pack import PackService
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +121,9 @@ class SynatyxMCPServer:
             self._skill_svc_cache[key] = SkillService(storage, self._postgres)
         return self._skill_svc_cache[key]
 
-    async def _get_pack_service(self, user_id: str, project: str | None = None):
+    async def _get_pack_service(
+        self, user_id: str, project: str | None = None
+    ) -> PackService:
         """Return a PackService backed by the active project's collection.
 
         Invalidated by context_index so a freshly built code index is picked
@@ -134,9 +141,9 @@ class SynatyxMCPServer:
                 retrieve, storage, l4_storage, self._postgres,
                 relations, skills, index_search,
             )
-        return self._pack_svc_cache[key]
+        return cast("PackService", self._pack_svc_cache[key])
 
-    async def _maybe_index_search(self, storage: QdrantStorage):
+    async def _maybe_index_search(self, storage: QdrantStorage) -> IndexSearchService | None:
         """Return an IndexSearchService when the project has an index
         collection, else None."""
         from src.core.index import IndexSearchService
@@ -154,12 +161,15 @@ class SynatyxMCPServer:
             return None
         return IndexSearchService(storage.scoped(index_collection))
 
-    async def _get_index_services(self, user_id: str, project: str | None = None):
+    async def _get_index_services(
+        self, user_id: str, project: str | None = None
+    ) -> tuple[IndexService, IndexSearchService]:
         """Return (IndexService, IndexSearchService) for the project's code/doc
         index collection. Requires a resolvable project — indexing into a
         default collection would orphan chunks on project rename."""
         from src.core.index import IndexSearchService, IndexService
 
+        slug: str | None
         if project:
             slug = project
         else:
@@ -175,7 +185,7 @@ class SynatyxMCPServer:
                 IndexService(storage, slug),
                 IndexSearchService(storage),
             )
-        return self._index_svc_cache[slug]
+        return cast("tuple[IndexService, IndexSearchService]", self._index_svc_cache[slug])
 
     async def _get_relation_service(
         self, user_id: str, project: str | None = None
@@ -432,7 +442,7 @@ class SynatyxMCPServer:
         return {"user_id": user_id, **await erase(storage, user_id)}
 
     def _register_handlers(self) -> None:
-        @self._server.list_tools()
+        @self._server.list_tools()  # type: ignore[untyped-decorator,no-untyped-call]
         async def list_tools() -> list[Tool]:
             return [
                 Tool(
@@ -443,7 +453,7 @@ class SynatyxMCPServer:
                 for t in TOOL_DEFINITIONS
             ]
 
-        @self._server.call_tool()
+        @self._server.call_tool()  # type: ignore[untyped-decorator]
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             import json
             result = await self.run_tool(name, arguments)
@@ -459,7 +469,7 @@ class SynatyxMCPServer:
         from mcp.types import Resource
         from pydantic import AnyUrl
 
-        @self._server.list_resources()
+        @self._server.list_resources()  # type: ignore[untyped-decorator,no-untyped-call]
         async def list_resources() -> list[Resource]:
             return [
                 Resource(
@@ -480,7 +490,7 @@ class SynatyxMCPServer:
                 ),
             ]
 
-        @self._server.read_resource()
+        @self._server.read_resource()  # type: ignore[untyped-decorator,no-untyped-call]
         async def read_resource(uri: Any) -> str:
             import json
 
@@ -512,7 +522,7 @@ class SynatyxMCPServer:
             PromptMessage,
         )
 
-        @self._server.list_prompts()
+        @self._server.list_prompts()  # type: ignore[untyped-decorator,no-untyped-call]
         async def list_prompts() -> list[Prompt]:
             return [
                 Prompt(
@@ -536,14 +546,24 @@ class SynatyxMCPServer:
                         "task, with provenance markers."
                     ),
                     arguments=[
-                        PromptArgument(name="query", description="The task to pack context for", required=True),
-                        PromptArgument(name="project", description="Project slug (optional)", required=False),
-                        PromptArgument(name="max_tokens", description="Token budget (default 3000)", required=False),
+                        PromptArgument(
+                            name="query",
+                            description="The task to pack context for",
+                            required=True,
+                        ),
+                        PromptArgument(
+                            name="project", description="Project slug (optional)", required=False
+                        ),
+                        PromptArgument(
+                            name="max_tokens",
+                            description="Token budget (default 3000)",
+                            required=False,
+                        ),
                     ],
                 ),
             ]
 
-        @self._server.get_prompt()
+        @self._server.get_prompt()  # type: ignore[untyped-decorator,no-untyped-call]
         async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
             import json
 
@@ -682,22 +702,25 @@ class SynatyxMCPServer:
             return {
                 "project": slug,
                 "collection": storage.collection_name,
-                "message": f"Active project set to '{slug}' (collection: '{storage.collection_name}').",
+                "message": (
+                    f"Active project set to '{slug}' "
+                    f"(collection: '{storage.collection_name}')."
+                ),
             }
 
         elif name == "context_get_project":
-            slug = await self._project_manager.get_project(user_id)
-            if slug:
-                return {"project": slug, "collection": f"ctx_{slug}", "suggestion": None}
+            active = await self._project_manager.get_project(user_id)
+            if active:
+                return {"project": active, "collection": f"ctx_{active}", "suggestion": None}
             from src.core.project import _detect_cwd_name
-            suggestion = _detect_cwd_name()
+            detected = _detect_cwd_name()
             return {
                 "project": None,
                 "collection": None,
-                "suggestion": suggestion,
+                "suggestion": detected,
                 "message": (
-                    f"No project set. Detected workspace folder '{suggestion}'. "
-                    f"Call context_set_project with project='{suggestion}' to confirm."
+                    f"No project set. Detected workspace folder '{detected}'. "
+                    f"Call context_set_project with project='{detected}' to confirm."
                 ),
             }
 
@@ -730,26 +753,31 @@ class SynatyxMCPServer:
             user_id, args.get("project")
         )
         _warn: dict[str, Any] = (
-            {"_project_warning": f"No project set. Detected workspace '{suggestion}'. Call context_set_project to confirm."}
+            {
+                "_project_warning": (
+                    f"No project set. Detected workspace '{suggestion}'. "
+                    "Call context_set_project to confirm."
+                )
+            }
             if suggestion else {}
         )
 
         if name == "context_brief":
             l4_storage = await self._project_manager.get_l4_storage()
             brief_svc = BriefService(storage, l4_storage, self._postgres)
-            slug = await self._project_manager.get_project(user_id)
+            active = await self._project_manager.get_project(user_id)
             # Fall back to the active-pointer slug so open_tasks (Postgres,
             # cross-project by nature) is always filtered to one project.
             brief_result = await brief_svc.brief(
                 user_id=user_id,
-                project=args.get("project") or slug,
+                project=args.get("project") or active,
                 session_id=args.get("session_id"),
                 max_tokens=args.get("max_tokens", 2000),
                 recent_days=args.get("recent_days", 7),
                 assignee=args.get("assignee"),
             )
             return {
-                "project": slug,
+                "project": active,
                 "collection": storage.collection_name,
                 **brief_result,
                 **_warn,
@@ -824,15 +852,17 @@ class SynatyxMCPServer:
             }
 
         elif name == "context_retrieve":
-            requested = [MemoryLayer(l) for l in args.get("memory_layers", [])] or list(MemoryLayer)
+            requested = [
+                MemoryLayer(ly) for ly in args.get("memory_layers", [])
+            ] or list(MemoryLayer)
             top_k = args.get("top_k", 10)
 
             # Split: L4 always comes from ctx_users; everything else from the project collection
-            project_layers = [l for l in requested if l != MemoryLayer.L4]
+            project_layers: list[MemoryLayer] = [ly for ly in requested if ly != MemoryLayer.L4]
             include_l4 = MemoryLayer.L4 in requested
 
             combined_items = []
-            suggested_budget: dict = {}
+            suggested_budget: dict[str, Any] = {}
 
             if project_layers:
                 proj_result = await retrieve.retrieve(
@@ -943,7 +973,10 @@ class SynatyxMCPServer:
 
             if "content" not in args or "memory_layer" not in args:
                 return {
-                    "error": "Provide either 'items' (batch) or 'content' + 'memory_layer' (single)."
+                    "error": (
+                        "Provide either 'items' (batch) or "
+                        "'content' + 'memory_layer' (single)."
+                    )
                 }
 
             layer = MemoryLayer(args["memory_layer"])
@@ -993,7 +1026,7 @@ class SynatyxMCPServer:
         elif name == "context_ingest":
             from src.models.memory_layer import MemoryLayer as ML
             layer_str = args.get("memory_layer", "L3")
-            result = await ingest.ingest(
+            ingest_result = await ingest.ingest(
                 source=args["source"],
                 user_id=user_id,
                 memory_layer=ML(layer_str),
@@ -1002,10 +1035,10 @@ class SynatyxMCPServer:
                 session_id=args.get("session_id"),
             )
             return {
-                "source": result.source,
-                "chunks_stored": result.chunks_stored,
-                "chunks_failed": result.chunks_failed,
-                "total_chunks": result.total_chunks,
+                "source": ingest_result.source,
+                "chunks_stored": ingest_result.chunks_stored,
+                "chunks_failed": ingest_result.chunks_failed,
+                "total_chunks": ingest_result.total_chunks,
                 **_warn,
             }
 
@@ -1017,7 +1050,13 @@ class SynatyxMCPServer:
                 project=args.get("project"),
                 session_id=args.get("session_id"),
             )
-            return {"item_id": item_ids[0], "item_ids": item_ids, "embedded": embedded, "checkpoint_name": args["name"], **_warn}
+            return {
+                "item_id": item_ids[0],
+                "item_ids": item_ids,
+                "embedded": embedded,
+                "checkpoint_name": args["name"],
+                **_warn,
+            }
 
         elif name == "context_deprecate":
             item_id = args["item_id"]
@@ -1033,7 +1072,7 @@ class SynatyxMCPServer:
                 user_id=user_id,
                 reason=args.get("reason"),
             )
-            result: dict[str, Any] = {"deprecated": True, "item_id": item_id}
+            result = {"deprecated": True, "item_id": item_id}
             if superseded_by:
                 relations = await self._get_relation_service(user_id, args.get("project"))
                 edge, _created = await relations.relate(
@@ -1168,12 +1207,12 @@ class SynatyxMCPServer:
         elif name == "context_list":
             from src.models.memory_layer import MemoryLayer as ML
             layer_str = args.get("memory_layer")
-            layer = ML(layer_str) if layer_str else None
+            list_layer = ML(layer_str) if layer_str else None
             # L4 lives in ctx_users — route list calls there when the filter is explicitly L4
-            _list_storage = (await self._get_l4_services())[0] if layer == ML.L4 else storage
+            _list_storage = (await self._get_l4_services())[0] if list_layer == ML.L4 else storage
             items = await _list_storage.list_items(
                 user_id=user_id,
-                memory_layer=layer,
+                memory_layer=list_layer,
                 checkpoints_only=args.get("checkpoints_only", False),
                 include_deprecated=args.get("include_deprecated", False),
                 project=args.get("project"),
@@ -1297,20 +1336,20 @@ class SynatyxMCPServer:
 
         elif name == "context_skill_get":
             svc = await self._get_skill_service(user_id, args.get("project"))
-            skill = await svc.get(
+            found_skill = await svc.get(
                 name=args["name"],
                 user_id=user_id,
                 project=args.get("project"),
             )
-            if not skill:
+            if not found_skill:
                 return {"error": f"Skill {args['name']!r} not found"}
             return {
-                "name": skill.name,
-                "slug": skill.slug,
-                "description": skill.description,
-                "content": skill.content,
-                "frontmatter": skill.frontmatter,
-                "project": skill.project,
+                "name": found_skill.name,
+                "slug": found_skill.slug,
+                "description": found_skill.description,
+                "content": found_skill.content,
+                "frontmatter": found_skill.frontmatter,
+                "project": found_skill.project,
             }
 
         elif name == "context_skill_list":
@@ -1322,7 +1361,12 @@ class SynatyxMCPServer:
             )
             return {
                 "skills": [
-                    {"name": s.name, "slug": s.slug, "description": s.description, "project": s.project}
+                    {
+                        "name": s.name,
+                        "slug": s.slug,
+                        "description": s.description,
+                        "project": s.project,
+                    }
                     for s in skills
                 ],
                 "count": len(skills),
@@ -1356,12 +1400,13 @@ class SynatyxMCPServer:
         elif name == "context_gc_stats":
             # _get_services returns (storage, retrieve, store, ingest, suggestion)
             qdrant = storage
+            from datetime import datetime, timedelta
+
             from src.config import settings as _settings
-            from src.core.gc import GarbageCollector, _IMMUNE_LAYERS, _IMMUNE_TYPE
-            from datetime import datetime, timedelta, timezone
+            from src.core.gc import GarbageCollector
 
             gc = GarbageCollector(qdrant=qdrant, postgres=self._postgres, settings=_settings.gc)
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             warn_threshold = timedelta(days=14)
 
             all_items, _ = await qdrant.scan_all_items(include_deprecated=True, limit=1000)
@@ -1375,7 +1420,7 @@ class SynatyxMCPServer:
                     if dep_raw:
                         dep_at = datetime.fromisoformat(dep_raw)
                         if dep_at.tzinfo is None:
-                            dep_at = dep_at.replace(tzinfo=timezone.utc)
+                            dep_at = dep_at.replace(tzinfo=UTC)
                         if (now - dep_at).days >= _settings.gc.grace_period_days:
                             pending_hard_delete += 1
                     continue
@@ -1394,7 +1439,7 @@ class SynatyxMCPServer:
                 if last_raw:
                     last = datetime.fromisoformat(last_raw)
                     if last.tzinfo is None:
-                        last = last.replace(tzinfo=timezone.utc)
+                        last = last.replace(tzinfo=UTC)
                     remaining = timedelta(days=effective_ttl) - (now - last)
                     if timedelta(0) < remaining <= warn_threshold:
                         expiring_soon += 1
@@ -1424,7 +1469,7 @@ class SynatyxMCPServer:
 
         raise ValueError(f"Unknown tool: {name}")
 
-    async def _store_for_user(self, user_id: str):
+    async def _store_for_user(self, user_id: str) -> StoreService:
         """StoreService bound to the user's active project — for trace compaction."""
         _, _, store, _, _ = await self._get_services(user_id)
         return store
@@ -1452,7 +1497,9 @@ class SynatyxMCPServer:
         tracking_task = asyncio.create_task(self.run_tracking_loop())
         try:
             async with stdio_server() as (read_stream, write_stream):
-                await self._server.run(read_stream, write_stream, self._server.create_initialization_options())
+                await self._server.run(
+                    read_stream, write_stream, self._server.create_initialization_options()
+                )
         finally:
             tracking_task.cancel()
 
