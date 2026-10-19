@@ -64,4 +64,5 @@ strict = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["integration: needs a reachable Postgres (see tests/integration/conftest.py)"]
 

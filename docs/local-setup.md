@@ -188,8 +188,16 @@ Qdrant: True
 | `make lint` | Run ruff linter |
 | `make format` | Run ruff formatter |
 | `make typecheck` | Run mypy |
-| `make test` | Run pytest |
+| `make test` | Run pytest (integration tests skip when Postgres is unreachable) |
+| `make test-integration` | Run only `tests/integration` against a real Postgres |
 | `make check` | lint + typecheck + test |
+
+**Integration tests.** `tests/integration` runs the handoff storage and the Alembic
+migrations against a real Postgres. It creates a scratch database `synatyx_it_<pid>_*` on
+the server named by `SYNATYX_IT_DATABASE_URL` (default
+`postgresql://context_engine:context_engine@localhost:5432/context_engine`, the
+`docker-compose.local.yml` Postgres) and drops it afterwards; your own data is untouched.
+If the server is unreachable every test skips.
 
 ---
 

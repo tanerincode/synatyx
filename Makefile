@@ -99,6 +99,10 @@ typecheck:
 test:
 	$(PYTHON) -m pytest
 
+.PHONY: test-integration
+test-integration:
+	$(PYTHON) -m pytest tests/integration -v
+
 .PHONY: check
 check: lint typecheck test
 
