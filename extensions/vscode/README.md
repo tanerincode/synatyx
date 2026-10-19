@@ -1,3 +1,8 @@
+> **Deprecated.** This extension will be removed in a later release. Use the
+> installer instead: `python scripts/index_project.py install --url <server>`
+> keeps the index fresh from Claude Code sessions with no editor extension. See
+> [Automatic indexing](../../docs/code-index.md#automatic-indexing).
+
 # Synatyx Indexer — VS Code / Cursor extension
 
 Keeps the open workspace pushed into a [Synatyx](https://github.com/tanerincode/synatyx)
