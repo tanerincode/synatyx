@@ -49,6 +49,11 @@ logger = logging.getLogger(__name__)
 # endpoints, /.well-known/*) bypass the check entirely.
 # ---------------------------------------------------------------------------
 
+# Dashboard web app vs its data API (see AdminKeyAuthMiddleware._is_public).
+_DASHBOARD_APP_PREFIX = "/dashboard/"
+_DASHBOARD_API_PREFIX = "/dashboard/api"
+
+
 class AdminKeyAuthMiddleware:
     def __init__(
         self,
@@ -85,6 +90,16 @@ class AdminKeyAuthMiddleware:
         await response(scope, receive, send)
 
     def _is_public(self, path: str) -> bool:
+        # The dashboard web app (HTML shell, client routes, hashed assets) is
+        # public: a browser opening /dashboard/briefs/x sends no credential, and
+        # none of those responses carry data. Its data API is not: anything
+        # starting with /dashboard/api (no trailing slash, so /dashboard/api and
+        # /dashboard/apix stay private too) needs a key. `path` is the decoded
+        # scope["path"] the router matches on.
+        if path.startswith(_DASHBOARD_API_PREFIX):
+            return False
+        if path.startswith(_DASHBOARD_APP_PREFIX):
+            return True
         return path in self._public_paths or path.startswith(self._public_prefixes)
 
     def _is_authorized(self, headers: dict[bytes, bytes]) -> bool:
