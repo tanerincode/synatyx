@@ -77,6 +77,7 @@ DEBOUNCE_SECONDS = 20
 # A pending runner older than this many windows is presumed dead, so a crashed
 # runner can never block pushes for good.
 PENDING_STALE_WINDOWS = 3
+NOINDEX_FILE = ".synatyx-noindex"
 
 
 def list_files(root: Path) -> list[Path]:
@@ -204,13 +205,23 @@ def keychain_get(url: str) -> str:
     return out.stdout.strip() if out.returncode == 0 else ""
 
 
+def _security_quote(value: str) -> str:
+    """Quote one word for `security -i`, whose parser reads double quotes."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def keychain_set(url: str, key: str) -> bool:
+    """Store the key. It goes in on stdin (`security -i`), never on argv, so it
+    cannot be read from the process list."""
     if not is_macos():
         return False
+    command = (
+        f"add-generic-password -U -s {KEYCHAIN_SERVICE} "
+        f"-a {_security_quote(url)} -w {_security_quote(key)}\n"
+    )
     try:
         out = subprocess.run(
-            ["security", "add-generic-password", "-U", "-s", KEYCHAIN_SERVICE,
-             "-a", url, "-w", key],
+            ["security", "-i"], input=command,
             capture_output=True, text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
@@ -312,6 +323,33 @@ def sync(root: Path, project: str, base: str, key: str, user_id: str,
           + (f", {totals['files_failed']} FAILED" if totals["files_failed"] else ""))
 
 
+def project_name(root: Path) -> str:
+    """The project a checkout belongs to.
+
+    A git worktree is another checkout of the same repository, so it files under
+    the main working tree's folder name, not its own (otherwise every agent
+    worktree would create a junk index). Falls back to the folder name.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, timeout=10,
+        )
+        common = Path(out.stdout.strip())
+        if out.returncode == 0 and common.name == ".git" and common.parent.name:
+            return common.parent.name
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return root.name
+
+
+def indexing_disabled(root: Path | None = None) -> bool:
+    """The opt-out: SYNATYX_INDEX=0, or a .synatyx-noindex file in the repo root."""
+    if os.getenv("SYNATYX_INDEX", "").strip() == "0":
+        return True
+    return root is not None and (root / NOINDEX_FILE).exists()
+
+
 def git_toplevel(start: Path) -> Path | None:
     if not start.is_dir():
         start = start.parent
@@ -398,12 +436,14 @@ def spawn_background(root: Path, delay: float, debounce: float) -> None:
 
 
 def run_push(root: Path) -> None:
+    if indexing_disabled(root):
+        return
     base = resolve_url()
     key = resolve_key(base)
     if not key:
         log(f"{root}: no auth key (run install, or set SYNATYX_AUTH_KEY)")
         return
-    sync(root, root.name, base, key, resolve_user())
+    sync(root, project_name(root), base, key, resolve_user())
 
 
 def cmd_push(args: argparse.Namespace) -> int:
@@ -419,12 +459,16 @@ def cmd_push(args: argparse.Namespace) -> int:
         return 0
 
     try:
+        if indexing_disabled():
+            return 0
         if args.from_hook:
             root = root_from_hook(sys.stdin.read())
             if root is None:
                 return 0  # not in a git repo: nothing to index
         else:
             root = Path(args.root).resolve()
+        if indexing_disabled(root):
+            return 0
 
         delay = 0.0
         if args.debounce:
@@ -646,14 +690,14 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
     ap.add_argument("--root", default=".", help="project root (default: cwd)")
-    ap.add_argument("--project", default=None, help="project slug (default: root folder name)")
+    ap.add_argument("--project", default=None, help="project slug (default: repo folder name)")
     ap.add_argument("--force", action="store_true", help="re-upload everything")
     ap.add_argument("--dry-run", action="store_true", help="show the diff, upload nothing")
     args = ap.parse_args()
 
     base = resolve_url()
     root = Path(args.root).resolve()
-    sync(root, args.project or root.name, base, resolve_key(base), resolve_user(),
+    sync(root, args.project or project_name(root), base, resolve_key(base), resolve_user(),
          force=args.force, dry_run=args.dry_run)
     return 0
 

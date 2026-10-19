@@ -104,6 +104,13 @@ Failures are written to `~/.cache/synatyx/index.log`, not to the session.
 The project name is the repository's folder name, and the key is looked up in
 this order: `$SYNATYX_AUTH_KEY`, the Keychain, the key file.
 
+**Opt out of a repo:** put an empty `.synatyx-noindex` file in its root, or set
+`SYNATYX_INDEX=0`; `push` then does nothing.
+
+**Worktrees:** a git worktree is indexed under the main working tree's folder
+name (not its own), pushing the worktree's own files, so agent worktrees never
+create extra index collections.
+
 **Limit:** only Claude Code sessions trigger pushes. Edits made any other way
 (an editor, `git pull`, a formatter) are picked up at the next session start.
 

@@ -31,18 +31,33 @@ def _load() -> Any:
     return module
 
 
-FAKE_SECURITY = """#!/bin/sh
-echo "$@" >> "$FAKE_SECURITY_LOG"
-case "$1" in
-  find-generic-password)
-    if [ -f "$FAKE_SECURITY_STORE" ]; then cat "$FAKE_SECURITY_STORE"; else exit 44; fi ;;
-  add-generic-password)
-    while [ $# -gt 0 ]; do
-      if [ "$1" = "-w" ]; then printf %s "$2" > "$FAKE_SECURITY_STORE"; fi
-      shift
-    done ;;
-  delete-generic-password) rm -f "$FAKE_SECURITY_STORE" ;;
-esac
+FAKE_SECURITY = """#!/usr/bin/env python3
+import os, shlex, sys
+
+STORE = os.environ["FAKE_SECURITY_STORE"]
+LOG = open(os.environ["FAKE_SECURITY_LOG"], "a")
+LOG.write("argv: " + " ".join(sys.argv[1:]) + "\\n")
+
+
+def run(words):
+    if words[0] == "find-generic-password":
+        if not os.path.exists(STORE):
+            sys.exit(44)
+        print(open(STORE).read())
+    elif words[0] == "add-generic-password":
+        open(STORE, "w").write(words[words.index("-w") + 1])
+    elif words[0] == "delete-generic-password":
+        if os.path.exists(STORE):
+            os.remove(STORE)
+
+
+if sys.argv[1:2] == ["-i"]:
+    for line in sys.stdin.read().splitlines():
+        LOG.write("stdin: " + line + "\\n")
+        if line.strip():
+            run(shlex.split(line))
+else:
+    run(sys.argv[1:])
 """
 
 
@@ -132,7 +147,11 @@ def test_install_stores_key_config_binary_and_both_hooks(ix, monkeypatch):
     assert _install(ix, monkeypatch) == 0
 
     assert ix.security_store.read_text() == "sekret"
-    assert f"add-generic-password -U -s synatyx -a {URL} -w sekret" in ix.security_log.read_text()
+    log = ix.security_log.read_text()
+    assert f'stdin: add-generic-password -U -s synatyx -a "{URL}" -w "sekret"' in log
+    # the key travels on stdin, so it must not be on any argv
+    argv_lines = [ln for ln in log.splitlines() if ln.startswith("argv")]
+    assert argv_lines == ["argv: -i"]
     assert not ix.key_file().exists()  # the Keychain took it
     assert ix.env_file().read_text() == f"SYNATYX_URL={URL}\nSYNATYX_USER_ID=tom\n"
     assert stat.S_IMODE(ix.env_file().stat().st_mode) == 0o600
@@ -209,6 +228,12 @@ def test_install_without_keychain_writes_a_private_key_file(ix, monkeypatch):
     assert not ix.security_log.exists()
 
 
+def test_a_key_with_quotes_and_spaces_survives_the_stdin_quoting(ix, monkeypatch):
+    awkward = 'p"a\\ss word\'s'
+    _install(ix, monkeypatch, key=awkward)
+    assert ix.security_store.read_text() == awkward
+
+
 def test_install_prompts_when_no_env_key(ix, monkeypatch):
     monkeypatch.setattr(ix.getpass, "getpass", lambda prompt="": "typed-key")
     args = ix.build_parser().parse_args(["install", "--url", URL])
@@ -226,7 +251,7 @@ def test_uninstall_removes_only_ours_and_keeps_the_binary(ix, monkeypatch):
     assert _settings(ix) == FOREIGN
     assert not ix.env_file().exists()
     assert not ix.security_store.exists()
-    assert "delete-generic-password -s synatyx -a " + URL in ix.security_log.read_text()
+    assert "argv: delete-generic-password -s synatyx -a " + URL in ix.security_log.read_text()
     assert ix.bin_path().exists()
 
 
@@ -417,6 +442,74 @@ def test_background_push_returns_immediately(tmp_path):
     assert done.returncode == 0
     assert done.stdout == ""  # a SessionStart hook's stdout would reach the model
     assert elapsed < 1.0
+
+
+# ── project name in worktrees, opt-out ──────────────────────────────────────
+
+def _commit(repo: Path) -> None:
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+
+
+def test_a_worktree_files_under_the_main_repo_name_but_pushes_its_own_files(
+    ix, monkeypatch, tmp_path
+):
+    repo = _git_repo(tmp_path / "myrepo")
+    _commit(repo)
+    wt = tmp_path / "myrepo" / ".claude" / "worktrees" / "myrepo-w1"
+    subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "-q", "-b", "wip", str(wt)], check=True
+    )
+    (wt / "only_here.py").write_text("x = 1\n")
+    assert ix.project_name(wt.resolve()) == "myrepo"
+    assert ix.project_name(repo) == "myrepo"
+
+    _install(ix, monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fake_post(url: str, key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        calls.append(payload)
+        return {"changed": [], "removed": []}
+
+    monkeypatch.setattr(ix, "post", fake_post)
+    ix.run_push(wt.resolve())
+
+    assert calls[0]["project"] == "myrepo"
+    assert "only_here.py" in calls[0]["files"]  # the worktree's own files
+
+
+def test_project_name_falls_back_to_the_folder_name_outside_git(ix, tmp_path):
+    plain = tmp_path / "just-a-folder"
+    plain.mkdir()
+    assert ix.project_name(plain) == "just-a-folder"
+
+
+def test_noindex_file_makes_push_do_nothing(ix, monkeypatch, tmp_path):
+    repo = _git_repo(tmp_path / "myrepo")
+    (repo / ".synatyx-noindex").write_text("")
+    spawned: list[Any] = []
+    monkeypatch.setattr(ix, "spawn_background", lambda *a: spawned.append(a))
+    monkeypatch.setattr(ix, "post", lambda *a, **k: pytest.fail("opted out"))
+    monkeypatch.setenv("SYNATYX_AUTH_KEY", "k")
+
+    assert _push(ix, monkeypatch, {"cwd": str(repo)}, "--background") == 0
+    assert ix.cmd_push(ix.build_parser().parse_args(["push", "--root", str(repo)])) == 0
+    ix.run_push(repo)  # even a runner that was already spawned stands down
+    assert spawned == []
+
+
+def test_synatyx_index_zero_makes_push_do_nothing(ix, monkeypatch, tmp_path):
+    repo = _git_repo(tmp_path / "myrepo")
+    spawned: list[Any] = []
+    monkeypatch.setattr(ix, "spawn_background", lambda *a: spawned.append(a))
+    monkeypatch.setattr(ix, "post", lambda *a, **k: pytest.fail("opted out"))
+    monkeypatch.setenv("SYNATYX_AUTH_KEY", "k")
+    monkeypatch.setenv("SYNATYX_INDEX", "0")
+
+    assert _push(ix, monkeypatch, {"cwd": str(repo)}, "--background") == 0
+    ix.run_push(repo)
+    assert spawned == []
 
 
 # ── the original, subcommand-less behaviour ─────────────────────────────────
