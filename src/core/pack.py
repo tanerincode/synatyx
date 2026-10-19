@@ -85,7 +85,7 @@ def _dump_pack(item: ContextItem, score: float | None = None) -> dict[str, Any]:
 def _entry_for_item(item: ContextItem, score: float | None = None) -> BudgetEntry:
     return BudgetEntry(
         tokens=item.token_estimate,
-        payload=(lambda i=item, s=score: _dump_pack(i, s)),
+        payload=(lambda i=item, s=score: _dump_pack(i, s)),  # type: ignore[misc]  # mypy cannot infer lambda with defaults
         raw_content=item.content,
     )
 

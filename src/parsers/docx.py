@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from src.parsers.base import BaseParser, ParsedChunk
 
 
@@ -18,7 +20,7 @@ class DocxParser(BaseParser):
         return self._chunk_by_section(blocks)
 
     @staticmethod
-    def _extract_blocks(doc) -> list[dict]:
+    def _extract_blocks(doc: Any) -> list[dict[str, Any]]:
         blocks = []
         for child in doc.element.body:
             tag = child.tag.split("}")[-1]
@@ -42,12 +44,12 @@ class DocxParser(BaseParser):
         return blocks
 
     @staticmethod
-    def _chunk_by_section(blocks: list[dict]) -> list[ParsedChunk]:
+    def _chunk_by_section(blocks: list[dict[str, Any]]) -> list[ParsedChunk]:
         chunks: list[ParsedChunk] = []
         current_title = "Introduction"
         current_parts: list[str] = []
 
-        def _flush():
+        def _flush() -> None:
             if current_parts:
                 chunks.append(ParsedChunk(
                     content="\n".join(current_parts),

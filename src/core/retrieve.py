@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.core.bm25 import BM25Index
-from src.core.budget import BudgetAllocation, BudgetManager
+from src.core.budget import BudgetManager
 from src.core.embedder import get_embedder
 from src.core.mmr import apply_mmr, diversify_by_source
 from src.core.score import score_items
@@ -201,7 +201,7 @@ class RetrieveService:
 
         budget_trimmed: list[ScoredContextItem] = []
         for layer in MemoryLayer:
-            trimmed = self._budget.enforce(by_layer[layer], layer)
+            trimmed = self._budget.enforce(by_layer[layer], layer)  # type: ignore[arg-type]  # list invariance
             budget_trimmed.extend(trimmed)  # type: ignore[arg-type]
 
         budget_trimmed.sort(key=lambda x: x.score, reverse=True)
@@ -217,8 +217,8 @@ class RetrieveService:
         else:
             final_items = budget_trimmed[:top_k]
 
-        allocation: BudgetAllocation = self._budget.get_allocation()
-        total_tokens = self._budget.estimate_tokens(final_items)
+        allocation = self._budget.get_allocation()
+        total_tokens = self._budget.estimate_tokens(final_items)  # type: ignore[arg-type]  # list invariance
 
         return RetrieveResult(
             context_items=final_items,

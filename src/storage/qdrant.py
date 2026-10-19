@@ -144,7 +144,7 @@ class QdrantStorage:
             await self._client.set_payload(
                 collection_name=self._collection_name,
                 payload=payload,
-                points=ids,
+                points=ids,  # type: ignore[arg-type]  # list[str] is a valid id list; list is invariant
             )
 
     async def delete_by_conditions(self, conditions: list[Any]) -> None:
@@ -275,7 +275,7 @@ class QdrantStorage:
                 FieldCondition(key="type", match=MatchValue(value=type_filter))
             )
 
-        results = await self._client.query_points(
+        response = await self._client.query_points(
             collection_name=self._collection_name,
             query=query_vector,
             query_filter=Filter(must=conditions),
@@ -283,7 +283,7 @@ class QdrantStorage:
             score_threshold=score_threshold,
             with_payload=True,
         )
-        results = results.points
+        results = response.points
 
         items = []
         for r in results:
@@ -355,7 +355,7 @@ class QdrantStorage:
         if not records or records[0].vector is None:
             return None
         vector = records[0].vector
-        return list(vector) if isinstance(vector, list) else None
+        return list(vector) if isinstance(vector, list) else None  # type: ignore[arg-type]  # dense vector is list[float]
 
     async def delete(self, item_id: str) -> None:
         """Delete a single point by ID."""

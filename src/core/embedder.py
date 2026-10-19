@@ -18,14 +18,14 @@ class SentenceTransformerEmbedder:
     """Local embedder using sentence-transformers (no API cost)."""
 
     def __init__(self, model_name: str) -> None:
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]  # optional dependency
         self._model = SentenceTransformer(model_name)
 
     async def embed(self, text: str) -> list[float]:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, self._model.encode, text)
         usage_add_embedding(estimate_tokens(text))
-        return result.tolist()
+        return result.tolist()  # type: ignore[no-any-return]  # numpy array
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         loop = asyncio.get_event_loop()

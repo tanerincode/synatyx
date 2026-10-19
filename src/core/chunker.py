@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 # Default chunk settings (from CTX-EG: 400–800 tokens, 10–15% overlap)
 DEFAULT_CHUNK_SIZE = 600   # characters (~150 tokens @ 4 chars/token)
@@ -25,7 +26,7 @@ class Chunk:
     start_pos: int
     end_pos: int
     index: int = 0
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def token_estimate(self) -> int:
