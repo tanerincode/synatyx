@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    ForeignKey,
     DateTime,
     Index,
     Integer,
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.config import settings
+from src.models.handoff import Handoff, HandoffReport, HandoffStatus, HandoffVersion
 from src.models.relation import MemoryRelation
 from src.models.session import KeyEntity, Session, SessionStatus
 from src.models.skill import Skill, _slugify
@@ -112,8 +114,58 @@ class TaskRow(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending", index=True)
     priority: Mapped[str] = mapped_column(String, nullable=False, default="medium")
     project: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    assignee: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class HandoffRow(Base):
+    __tablename__ = "handoffs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "project", "slug", name="uq_handoffs_user_project_slug"),
+        Index("ix_handoffs_user_assignee_status", "user_id", "assignee", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    project: Mapped[str] = mapped_column(String, nullable=False)
+    slug: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    assignee: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    parent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    task_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class HandoffVersionRow(Base):
+    __tablename__ = "handoff_versions"
+
+    handoff_id: Mapped[str] = mapped_column(
+        String, ForeignKey("handoffs.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class HandoffReportRow(Base):
+    __tablename__ = "handoff_reports"
+    __table_args__ = (Index("ix_handoff_reports_handoff_created", "handoff_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    handoff_id: Mapped[str] = mapped_column(
+        String, ForeignKey("handoffs.id", ondelete="CASCADE"), nullable=False
+    )
+    agent: Mapped[str] = mapped_column(String, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    status_after: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ToolUsageRow(Base):
@@ -305,6 +357,7 @@ class PostgresStorage:
                 status=task.status.value,
                 priority=task.priority.value,
                 project=task.project,
+                assignee=task.assignee,
             )
             session.add(row)
             await session.commit()
@@ -318,6 +371,7 @@ class PostgresStorage:
         priority: TaskPriority | None = None,
         project: str | None = None,
         limit: int = 50,
+        assignee: str | None = None,
     ) -> list[Task]:
         async with self._session_factory() as session:
             stmt = select(TaskRow).where(TaskRow.user_id == user_id)
@@ -327,6 +381,8 @@ class PostgresStorage:
                 stmt = stmt.where(TaskRow.priority == priority.value)
             if project:
                 stmt = stmt.where(TaskRow.project == project)
+            if assignee:
+                stmt = stmt.where(TaskRow.assignee == assignee)
             stmt = stmt.order_by(TaskRow.created_at.desc()).limit(limit)
             result = await session.execute(stmt)
             return [self._row_to_task(r) for r in result.scalars().all()]
@@ -353,6 +409,7 @@ class PostgresStorage:
         priority: TaskPriority | None = None,
         title: str | None = None,
         description: str | None = None,
+        assignee: str | None = None,
     ) -> Task | None:
         async with self._session_factory() as session:
             row = await session.get(TaskRow, task_id)
@@ -366,6 +423,8 @@ class PostgresStorage:
                 row.title = title
             if description is not None:
                 row.description = description
+            if assignee is not None:
+                row.assignee = assignee
             await session.commit()
             await session.refresh(row)
             return self._row_to_task(row)
@@ -380,8 +439,202 @@ class PostgresStorage:
             status=TaskStatus(row.status),
             priority=TaskPriority(row.priority),
             project=row.project,
+            assignee=row.assignee,
             created_at=row.created_at,
             updated_at=row.updated_at,
+        )
+
+    # ── Handoff CRUD ─────────────────────────────────────────────────────────
+
+    async def handoff_create(self, h: Handoff) -> Handoff:
+        """Insert the handoff and its version-1 row in one transaction."""
+        async with self._session_factory() as session:
+            session.add(self._handoff_to_row(h))
+            session.add(
+                HandoffVersionRow(
+                    handoff_id=h.id,
+                    version=h.version,
+                    body=h.body,
+                    author=h.created_by,
+                    created_at=h.created_at,
+                )
+            )
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise ValueError(
+                    f"handoff slug '{h.slug}' already exists in project '{h.project}'"
+                ) from exc
+        return h
+
+    async def handoff_get(
+        self,
+        user_id: str,
+        handoff_id: str | None = None,
+        *,
+        project: str | None = None,
+        slug: str | None = None,
+    ) -> Handoff | None:
+        if handoff_id is None and (project is None or slug is None):
+            return None
+        async with self._session_factory() as session:
+            stmt = select(HandoffRow).where(HandoffRow.user_id == user_id)
+            if handoff_id is not None:
+                stmt = stmt.where(HandoffRow.id == handoff_id)
+            else:
+                stmt = stmt.where(HandoffRow.project == project, HandoffRow.slug == slug)
+            row = (await session.execute(stmt)).scalars().first()
+        return self._row_to_handoff(row) if row else None
+
+    async def handoff_get_version(self, handoff_id: str, version: int) -> HandoffVersion | None:
+        async with self._session_factory() as session:
+            row = await session.get(HandoffVersionRow, (handoff_id, version))
+        return self._row_to_handoff_version(row) if row else None
+
+    async def handoff_list(
+        self,
+        user_id: str,
+        *,
+        project: str | None = None,
+        assignee: str | None = None,
+        statuses: list[HandoffStatus] | None = None,
+        limit: int = 50,
+    ) -> list[Handoff]:
+        async with self._session_factory() as session:
+            stmt = select(HandoffRow).where(HandoffRow.user_id == user_id)
+            if project is not None:
+                stmt = stmt.where(HandoffRow.project == project)
+            if assignee is not None:
+                stmt = stmt.where(HandoffRow.assignee == assignee)
+            if statuses:
+                stmt = stmt.where(HandoffRow.status.in_([s.value for s in statuses]))
+            stmt = stmt.order_by(HandoffRow.updated_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._row_to_handoff(r) for r in result.scalars().all()]
+
+    async def handoff_save(
+        self, h: Handoff, new_version: HandoffVersion | None = None
+    ) -> Handoff:
+        """Update the handoff row (and insert a version row) atomically."""
+        async with self._session_factory() as session:
+            row = await session.get(HandoffRow, h.id)
+            if row is None or row.user_id != h.user_id:
+                raise ValueError(f"handoff '{h.id}' not found")
+            row.title = h.title
+            row.assignee = h.assignee
+            row.status = h.status.value
+            row.body = h.body
+            row.version = h.version
+            row.parent_id = h.parent_id
+            row.task_ids = list(h.task_ids)
+            row.updated_at = h.updated_at
+            if new_version is not None:
+                session.add(
+                    HandoffVersionRow(
+                        handoff_id=new_version.handoff_id,
+                        version=new_version.version,
+                        body=new_version.body,
+                        author=new_version.author,
+                        created_at=new_version.created_at,
+                    )
+                )
+            await session.commit()
+            await session.refresh(row)
+            return self._row_to_handoff(row)
+
+    async def handoff_add_report(
+        self, r: HandoffReport, new_status: HandoffStatus | None = None
+    ) -> HandoffReport:
+        """Insert the report and, if given, move the handoff status atomically."""
+        async with self._session_factory() as session:
+            session.add(
+                HandoffReportRow(
+                    id=r.id,
+                    handoff_id=r.handoff_id,
+                    agent=r.agent,
+                    text=r.text,
+                    status_after=r.status_after.value if r.status_after else None,
+                    created_at=r.created_at,
+                )
+            )
+            if new_status is not None:
+                await session.execute(
+                    update(HandoffRow)
+                    .where(HandoffRow.id == r.handoff_id)
+                    .values(status=new_status.value, updated_at=r.created_at)
+                )
+            await session.commit()
+        return r
+
+    async def handoff_reports(self, handoff_id: str, limit: int = 10) -> list[HandoffReport]:
+        async with self._session_factory() as session:
+            stmt = (
+                select(HandoffReportRow)
+                .where(HandoffReportRow.handoff_id == handoff_id)
+                .order_by(HandoffReportRow.created_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return [self._row_to_handoff_report(r) for r in result.scalars().all()]
+
+    @staticmethod
+    def _handoff_to_row(h: Handoff) -> HandoffRow:
+        return HandoffRow(
+            id=h.id,
+            user_id=h.user_id,
+            project=h.project,
+            slug=h.slug,
+            title=h.title,
+            assignee=h.assignee,
+            status=h.status.value,
+            body=h.body,
+            version=h.version,
+            parent_id=h.parent_id,
+            task_ids=list(h.task_ids),
+            created_by=h.created_by,
+            created_at=h.created_at,
+            updated_at=h.updated_at,
+        )
+
+    @staticmethod
+    def _row_to_handoff(row: HandoffRow) -> Handoff:
+        return Handoff(
+            id=row.id,
+            user_id=row.user_id,
+            project=row.project,
+            slug=row.slug,
+            title=row.title,
+            assignee=row.assignee,
+            status=HandoffStatus(row.status),
+            body=row.body,
+            version=row.version,
+            parent_id=row.parent_id,
+            task_ids=list(row.task_ids or []),
+            created_by=row.created_by,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    @staticmethod
+    def _row_to_handoff_version(row: HandoffVersionRow) -> HandoffVersion:
+        return HandoffVersion(
+            handoff_id=row.handoff_id,
+            version=row.version,
+            body=row.body,
+            author=row.author,
+            created_at=row.created_at,
+        )
+
+    @staticmethod
+    def _row_to_handoff_report(row: HandoffReportRow) -> HandoffReport:
+        return HandoffReport(
+            id=row.id,
+            handoff_id=row.handoff_id,
+            agent=row.agent,
+            text=row.text,
+            status_after=HandoffStatus(row.status_after) if row.status_after else None,
+            created_at=row.created_at,
         )
 
     # ── GC Log ───────────────────────────────────────────────────────────────
