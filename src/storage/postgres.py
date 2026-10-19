@@ -1090,6 +1090,20 @@ class PostgresStorage:
             result = await session.execute(stmt)
             return [self._row_to_skill(r) for r in result.scalars().all()]
 
+    async def skill_list_all(
+        self, user_id: str | None = None, project: str | None = None, limit: int = 100
+    ) -> list[Skill]:
+        """List skills, across all users when user_id is None — dashboard use."""
+        async with self._session_factory() as session:
+            stmt = select(SkillRow)
+            if user_id is not None:
+                stmt = stmt.where(SkillRow.user_id == user_id)
+            if project is not None:
+                stmt = stmt.where(SkillRow.project == project)
+            stmt = stmt.order_by(SkillRow.updated_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._row_to_skill(r) for r in result.scalars().all()]
+
     async def skill_delete(self, skill_id: str, user_id: str) -> bool:
         async with self._session_factory() as session:
             row = await session.get(SkillRow, skill_id)
