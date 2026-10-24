@@ -211,3 +211,21 @@ async def test_project_list_uses_explicit_project_and_pages(
 
     assert res["count"] == 301
     assert res["items"][0]["id"] == fresh.id
+
+
+async def test_naive_created_at_sorts_with_aware_ones() -> None:
+    storage = _storage("ctx_kai")
+    older = _item(age_minutes=1)
+    newer = _item(age_minutes=10)
+    legacy = _item(age_minutes=5)
+    for it in (older, newer, legacy):
+        await storage.upsert(it)
+    # Old payloads carry created_at without an offset.
+    client: Any = storage._client
+    payload = client.points[legacy.id].payload
+    payload["created_at"] = (T0 + timedelta(minutes=5)).replace(tzinfo=None).isoformat()
+    assert "+" not in payload["created_at"]
+
+    got = await storage.list_items(user_id=USER, limit=10)
+
+    assert [i.id for i in got] == [newer.id, legacy.id, older.id]

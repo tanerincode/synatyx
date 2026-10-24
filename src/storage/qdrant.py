@@ -14,7 +14,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from src.models.context import ContextItem, ScoredContextItem
+from src.models.context import ContextItem, ScoredContextItem, created_at_utc
 from src.models.memory_layer import MemoryLayer
 
 DEFAULT_COLLECTION = "ctx_default"
@@ -557,7 +557,7 @@ class QdrantStorage:
                 items.append(self._payload_to_item(r.id, p))
             if offset is None:
                 break
-        items.sort(key=lambda i: i.created_at, reverse=True)
+        items.sort(key=created_at_utc, reverse=True)
         return items[:limit]
 
     async def count_items(

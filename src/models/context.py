@@ -9,6 +9,13 @@ from pydantic import BaseModel, Field, field_validator
 from src.models.memory_layer import MemoryLayer
 
 
+def created_at_utc(item: ContextItem) -> datetime:
+    """created_at as an aware UTC datetime. Old payloads stored naive values,
+    which cannot be compared with aware ones."""
+    ts = item.created_at
+    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
+
+
 class ContextItem(BaseModel):
     """A single unit of memory in the Synatyx Context Engine."""
 
