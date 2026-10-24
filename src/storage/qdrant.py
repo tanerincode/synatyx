@@ -514,8 +514,14 @@ class QdrantStorage:
         include_deprecated: bool = False,
         project: str | None = None,
         limit: int = 50,
+        page_size: int = 256,
     ) -> list[ContextItem]:
-        """Scroll through items without vector search — for listing/browsing."""
+        """List items without vector search, newest first.
+
+        Scroll returns points in id order, one page at a time, so a single call
+        sees an arbitrary slice. Page through every match, sort by created_at,
+        then apply `limit` — otherwise the newest items can fall off the end.
+        """
         conditions: list[Any] = [
             FieldCondition(key="user_id", match=MatchValue(value=user_id)),
         ]
@@ -532,22 +538,27 @@ class QdrantStorage:
                 FieldCondition(key="project", match=MatchValue(value=project))
             )
 
-        results, _ = await self._client.scroll(
-            collection_name=self._collection_name,
-            scroll_filter=Filter(must=conditions),
-            limit=limit,
-            with_payload=True,
-            with_vectors=False,
-        )
-
-        items = []
-        for r in results:
-            p = r.payload or {}
-            # filter checkpoints in Python (no top-level field for checkpoint_name)
-            if checkpoints_only and "checkpoint_name" not in p.get("metadata", {}):
-                continue
-            items.append(self._payload_to_item(r.id, p))
-        return items
+        items: list[ContextItem] = []
+        offset: Any = None
+        while True:
+            results, offset = await self._client.scroll(
+                collection_name=self._collection_name,
+                scroll_filter=Filter(must=conditions),
+                limit=page_size,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for r in results:
+                p = r.payload or {}
+                # filter checkpoints in Python (no top-level field for checkpoint_name)
+                if checkpoints_only and "checkpoint_name" not in p.get("metadata", {}):
+                    continue
+                items.append(self._payload_to_item(r.id, p))
+            if offset is None:
+                break
+        items.sort(key=lambda i: i.created_at, reverse=True)
+        return items[:limit]
 
     async def count_items(
         self,

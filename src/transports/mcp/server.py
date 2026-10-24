@@ -1214,7 +1214,7 @@ class SynatyxMCPServer:
                 user_id=user_id,
                 memory_layer=graph_layer,
                 include_deprecated=args.get("include_deprecated", True),
-                project=args.get("project"),
+                project=None if graph_layer == ML.L4 else args.get("project"),
                 limit=args.get("limit", 50),
             )
             relations = await self._get_relation_service(user_id, args.get("project"))
@@ -1256,13 +1256,16 @@ class SynatyxMCPServer:
             layer_str = args.get("memory_layer")
             list_layer = ML(layer_str) if layer_str else None
             # L4 lives in ctx_users — route list calls there when the filter is explicitly L4
+            # L4 is user-global, so it is not filtered by project either: its points
+            # carry payload.project None unless metadata.project was set.
             _list_storage = (await self._get_l4_services())[0] if list_layer == ML.L4 else storage
+            _list_project = None if list_layer == ML.L4 else args.get("project")
             items = await _list_storage.list_items(
                 user_id=user_id,
                 memory_layer=list_layer,
                 checkpoints_only=args.get("checkpoints_only", False),
                 include_deprecated=args.get("include_deprecated", False),
-                project=args.get("project"),
+                project=_list_project,
                 limit=args.get("limit", 50),
             )
             return {
