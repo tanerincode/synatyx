@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from src.core.budget import estimate_tokens
-from src.models.context import ContextItem
+from src.models.context import ContextItem, created_at_utc
 from src.models.handoff import OPEN_HANDOFF_STATUSES
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
@@ -36,11 +36,6 @@ _ATTEMPT_TYPE = "attempt"
 _SCAN_LIMIT = 500  # max items scrolled per collection when composing a brief
 
 
-def _created_at(item: ContextItem) -> datetime:
-    ts = item.created_at
-    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
-
-
 def _dump(item: ContextItem, max_chars: int | None = None) -> dict[str, Any]:
     content = item.content
     truncated = False
@@ -54,7 +49,7 @@ def _dump(item: ContextItem, max_chars: int | None = None) -> dict[str, Any]:
         "importance": item.importance,
         "is_pinned": item.is_pinned,
         "origin": item.metadata.get("origin"),
-        "created_at": _created_at(item).isoformat(),
+        "created_at": created_at_utc(item).isoformat(),
     }
     if truncated:
         dumped["truncated"] = True
@@ -140,33 +135,33 @@ class BriefService:
         facts = [i for i in briefable if item_type(i) != _ATTEMPT_TYPE]
 
         # Identity — user-global preferences, most important first
-        l4_sorted = sorted(l4_items, key=lambda i: (i.importance, _created_at(i)), reverse=True)
+        l4_sorted = sorted(l4_items, key=lambda i: (i.importance, created_at_utc(i)), reverse=True)
         identity, identity_tokens = _fit(l4_sorted, budgets["identity"])
 
         # Last session — episodic L2, newest first
         l2_sorted = sorted(
             (i for i in facts if i.memory_layer == MemoryLayer.L2),
-            key=_created_at, reverse=True,
+            key=created_at_utc, reverse=True,
         )
         last_session, l2_tokens = _fit(l2_sorted, budgets["last_session"])
 
         # Project knowledge — L3, pinned checkpoints first, then by importance
         l3_sorted = sorted(
             (i for i in facts if i.memory_layer == MemoryLayer.L3),
-            key=lambda i: (i.is_pinned, i.importance, _created_at(i)), reverse=True,
+            key=lambda i: (i.is_pinned, i.importance, created_at_utc(i)), reverse=True,
         )
         knowledge, knowledge_tokens = _fit(l3_sorted, budgets["project_knowledge"])
 
         # Recent changes — anything new since the cutoff not already shown
         shown_ids = {d["id"] for d in identity + last_session + knowledge}
         recent_sorted = sorted(
-            (i for i in facts if _created_at(i) >= recent_cutoff and i.id not in shown_ids),
-            key=_created_at, reverse=True,
+            (i for i in facts if created_at_utc(i) >= recent_cutoff and i.id not in shown_ids),
+            key=created_at_utc, reverse=True,
         )
         recent_changes, recent_tokens = _fit(recent_sorted, budgets["recent_changes"])
 
         # Recent attempts — tried-and-failed records, newest first
-        attempts_sorted = sorted(attempts, key=_created_at, reverse=True)
+        attempts_sorted = sorted(attempts, key=created_at_utc, reverse=True)
         recent_attempts, attempt_tokens = _fit(attempts_sorted, budgets["recent_attempts"])
 
         open_tasks, task_tokens = await self._open_tasks(user_id, project, budgets["open_tasks"])

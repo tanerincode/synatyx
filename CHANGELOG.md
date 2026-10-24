@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `context_list` returns every matching item, newest first. Qdrant scroll returns one page in point-id order, and the old code read only that page, so recent items were missing once a project grew past it. The storage layer now pages through all matches, sorts by `created_at` and then applies `limit`
+- `context_list` and `context_visualize` with `memory_layer: L4` no longer filter by `project`. L4 is user-global and lives in `ctx_users`, where points have no project unless `metadata.project` is set, so a project filter hid them
+
 ### Handoffs
 
 Briefs between agents now live in Synatyx as versioned "handoffs".

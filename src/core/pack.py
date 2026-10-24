@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.core.budget import BudgetEntry, SectionBudgeter, estimate_tokens
 from src.core.embedder import get_embedder
-from src.models.context import ContextItem
+from src.models.context import ContextItem, created_at_utc
 from src.models.memory_layer import MemoryLayer
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
@@ -54,11 +54,6 @@ _SECTION_TITLES: dict[str, str] = {
 }
 
 
-def _created_at(item: ContextItem) -> datetime:
-    ts = item.created_at
-    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
-
-
 def _dump_pack(item: ContextItem, score: float | None = None) -> dict[str, Any]:
     """Serialize one memory for a pack section — brief's `_dump` shape plus
     the retrieval score."""
@@ -69,7 +64,7 @@ def _dump_pack(item: ContextItem, score: float | None = None) -> dict[str, Any]:
         "importance": item.importance,
         "is_pinned": item.is_pinned,
         "origin": item.metadata.get("origin"),
-        "created_at": _created_at(item).isoformat(),
+        "created_at": created_at_utc(item).isoformat(),
     }
     if score is not None:
         dumped["score"] = round(score, 4)
