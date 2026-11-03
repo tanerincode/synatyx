@@ -21,6 +21,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src.config import settings
+from src.core.message import AUTH_SCOPE_KEY
 from src.core.oauth import SynatyxOAuthProvider
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
@@ -80,7 +81,13 @@ class AdminKeyAuthMiddleware:
             return
 
         headers = dict(scope.get("headers") or [])
-        if self._is_authorized(headers) or await self._authorize_token(scope, headers):
+        if self._is_authorized(headers):
+            # Name the credential for whoever needs to show it (message
+            # sender_auth). The shared key says nothing about which user.
+            scope[AUTH_SCOPE_KEY] = "admin-key"
+            await self.app(scope, receive, send)
+            return
+        if await self._authorize_token(scope, headers):
             await self.app(scope, receive, send)
             return
 
@@ -136,6 +143,7 @@ class AdminKeyAuthMiddleware:
         # downstream reading scope["user"]/["auth"] behaves identically.
         scope["user"] = AuthenticatedUser(access_token)
         scope["auth"] = AuthCredentials(access_token.scopes)
+        scope[AUTH_SCOPE_KEY] = f"oauth:{access_token.client_id}"
         return True
 
     def _challenge_headers(self) -> dict[str, str]:
