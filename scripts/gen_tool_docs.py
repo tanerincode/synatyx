@@ -39,6 +39,9 @@ CATEGORIES: dict[str, list[str]] = {
         "context_handoff_create", "context_handoff_get", "context_handoff_list",
         "context_handoff_update", "context_handoff_report", "context_handoff_mine",
     ],
+    "Messages": [
+        "context_message_send", "context_message_reply", "context_message_list",
+    ],
     "Skills": [
         "context_skill_store", "context_skill_find", "context_skill_get",
         "context_skill_list", "context_skill_delete",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, cast
 
 from mcp.server import Server
@@ -13,6 +14,7 @@ from src.core.brief import BriefService
 from src.core.budget import BudgetManager, estimate_tokens
 from src.core.handoff import HandoffService
 from src.core.ingest import IngestService
+from src.core.message import AUTH_SCOPE_KEY, MessageService
 from src.core.project import ProjectManager
 from src.core.relation import RelationService
 from src.core.retrieve import RetrieveService, empty_retrieve_diagnostics
@@ -24,6 +26,7 @@ from src.core.tracking import SessionTracker
 from src.core.usage import UsageRecorder, usage_begin, usage_end
 from src.models.handoff import Handoff, HandoffReport, HandoffStatus
 from src.models.memory_layer import MemoryLayer
+from src.models.message import Message, MessageBox, MessageKind, MessageStatus, message_notice
 from src.storage.postgres import PostgresStorage
 from src.storage.qdrant import QdrantStorage
 from src.storage.redis import RedisStorage
@@ -110,6 +113,59 @@ def _handoff_project(value: Any) -> str | None:
         from src.core.project import slugify
         return slugify(value)
     return None
+
+
+# Credential the current tool call came in on: "admin-key", "oauth:<client_id>",
+# "stdio", ... Set by run_tool; read when a message is sent so the recipient
+# can see what actually vouched for the self-declared sender user_id.
+_call_auth: ContextVar[str | None] = ContextVar("synatyx_call_auth", default=None)
+
+
+def _auth_from_request(request: Any) -> str:
+    """Name the credential an MCP request arrived with.
+
+    No HTTP request means the stdio transport, where whoever launched the
+    process is the caller. An HTTP request the middleware did not label was
+    let through without auth (AUTH_ADMIN_KEY unset).
+    """
+    if request is None:
+        return "stdio"
+    scope = getattr(request, "scope", None) or {}
+    return str(scope.get(AUTH_SCOPE_KEY) or "unauthenticated")
+
+
+def _message_out(m: Message) -> dict[str, Any]:
+    return {
+        "id": m.id,
+        "from": m.sender_user_id,
+        "from_session": m.sender_session,
+        "sender_auth": m.sender_auth,
+        "to": m.recipient_user_id,
+        "kind": _enum_value(m.kind),
+        "body": m.body,
+        "status": _enum_value(m.status),
+        "parent_id": m.parent_id,
+        "created_at": m.created_at.isoformat(),
+        "delivered_at": m.delivered_at.isoformat() if m.delivered_at else None,
+        "notice": message_notice(m.sender_user_id, m.sender_auth),
+    }
+
+
+def _message_error_code(message: str) -> str:
+    """Classify a ValueError raised by MessageService (same codes as handoffs)."""
+    if message.startswith("unknown recipient") or "not found" in message:
+        return HANDOFF_NOT_FOUND
+    return HANDOFF_INVALID
+
+
+def _message_enum(enum: type[Any], value: Any, field: str) -> Any:
+    if value is None or value == "":
+        return None
+    try:
+        return enum(value)
+    except ValueError:
+        valid = ", ".join(e.value for e in enum)
+        raise ValueError(f"Invalid {field} {value!r}; expected one of: {valid}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +371,9 @@ class SynatyxMCPServer:
         )
         return {"item_id": item_ids[0], "item_ids": item_ids, "embedded": embedded}
 
-    async def run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def run_tool(
+        self, name: str, arguments: dict[str, Any], *, auth: str | None = None
+    ) -> dict[str, Any]:
         """Run one tool exactly as the MCP transport runs it, returning the raw dict.
 
         Everything that wraps a tool call — token metering, implicit session
@@ -329,6 +387,7 @@ class SynatyxMCPServer:
         import json
 
         usage_begin()
+        auth_token = _call_auth.set(auth)
         failed = False
         try:
             result = await self._dispatch(name, arguments)
@@ -340,6 +399,8 @@ class SynatyxMCPServer:
             # reports the caller's own typo as an outage.
             result = {"error": str(exc), "tool": name, "error_type": type(exc).__name__}
             failed = True
+        finally:
+            _call_auth.reset(auth_token)
 
         # record() swallows its own errors
         await self._tracker.record(arguments.get("user_id", ""), name, arguments, result)
@@ -481,7 +542,11 @@ class SynatyxMCPServer:
         @self._server.call_tool()  # type: ignore[untyped-decorator]
         async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             import json
-            result = await self.run_tool(name, arguments)
+            try:
+                request = self._server.request_context.request
+            except LookupError:
+                request = None
+            result = await self.run_tool(name, arguments, auth=_auth_from_request(request))
             return [TextContent(type="text", text=json.dumps(result, default=str))]
 
         self._register_resources()
@@ -723,11 +788,58 @@ class SynatyxMCPServer:
             )
         return _handoff_error(f"Unknown handoff tool {name!r}", HANDOFF_INVALID)
 
+    async def _dispatch_message(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """context_message_* tools. Postgres only; failures come back as error dicts."""
+        user_id = str(args.get("user_id") or "").strip()
+        svc = MessageService(self._postgres)
+        try:
+            if not user_id:
+                return _handoff_error("user_id is required", HANDOFF_INVALID)
+            session = args.get("session") or args.get("session_id") or None
+            auth = _call_auth.get()
+            if name == "context_message_send":
+                kind = _message_enum(MessageKind, args.get("kind"), "kind") or MessageKind.NOTE
+                sent = await svc.send(
+                    user_id, args["to"], args["body"], kind,
+                    sender_session=session, sender_auth=auth,
+                )
+                return {"message": _message_out(sent)}
+
+            if name == "context_message_reply":
+                sent = await svc.reply(
+                    user_id, args["message_id"], args["body"],
+                    sender_session=session, sender_auth=auth,
+                )
+                return {"message": _message_out(sent)}
+
+            if name == "context_message_list":
+                box = _message_enum(MessageBox, args.get("box"), "box") or MessageBox.INBOX
+                messages = await svc.list(
+                    user_id,
+                    box,
+                    status=_message_enum(MessageStatus, args.get("status"), "status"),
+                    limit=max(1, min(int(args.get("limit") or 50), 200)),
+                )
+                return {
+                    "box": box.value,
+                    "messages": [_message_out(m) for m in messages],
+                    "count": len(messages),
+                }
+        except ValueError as exc:
+            return _handoff_error(str(exc), _message_error_code(str(exc)))
+        except KeyError as exc:
+            return _handoff_error(
+                f"Missing required argument {exc.args[0]!r}", HANDOFF_INVALID
+            )
+        return _handoff_error(f"Unknown message tool {name!r}", HANDOFF_INVALID)
+
     async def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         user_id = args.get("user_id", "")
 
         if name.startswith("context_handoff_"):
             return await self._dispatch_handoff(name, args)
+        if name.startswith("context_message_"):
+            return await self._dispatch_message(name, args)
 
         # ── Project management (no storage needed) ──────────────────────────
         if name == "context_set_project":

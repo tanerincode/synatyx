@@ -137,6 +137,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | | `context_handoff_update` | Edit body, title, status or assignee |
 | | `context_handoff_report` | Append a progress report, optionally moving status |
 | | `context_handoff_mine` | List your open handoffs |
+| **Messages** | `context_message_send` | Leave a message for another person's Kai (delivered in their next brief) |
+| | `context_message_reply` | Reply to a message; one level of threading |
+| | `context_message_list` | Re-read your inbox or sent messages |
 | **Skills** | `context_skill_store` | Save an agent skill definition (PG + Qdrant L3) |
 | | `context_skill_find` | RAG search for the best matching skill |
 | | `context_skill_get` | Fetch a skill by name or slug |
@@ -193,7 +196,7 @@ Qdrant: True
 | `make test-integration` | Run only `tests/integration` against a real Postgres |
 | `make check` | lint + typecheck + test |
 
-**Integration tests.** `tests/integration` runs the handoff storage and the Alembic
+**Integration tests.** `tests/integration` runs the handoff and message storage and the Alembic
 migrations against a real Postgres. It creates a scratch database `synatyx_it_<pid>_*` on
 the server named by `SYNATYX_IT_DATABASE_URL` (default
 `postgresql://context_engine:context_engine@localhost:5432/context_engine`, the
