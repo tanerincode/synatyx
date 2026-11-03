@@ -35,6 +35,23 @@ async def _schema(url: URL) -> tuple[set[str], set[str]]:
     return tables, task_cols
 
 
+def test_messages_upgrade_downgrade(scratch_db_factory: Callable[[str], URL]) -> None:
+    url = scratch_db_factory("migrations_messages")
+
+    run_alembic(url, "upgrade", "head")
+    tables, _ = asyncio.run(_schema(url))
+    assert "messages" in tables
+
+    run_alembic(url, "downgrade", "e2b9a4c7d615")  # the revision before add_messages
+    tables, _ = asyncio.run(_schema(url))
+    assert "messages" not in tables
+    assert HANDOFF_TABLES <= tables
+
+    run_alembic(url, "upgrade", "head")
+    tables, _ = asyncio.run(_schema(url))
+    assert "messages" in tables
+
+
 def test_upgrade_downgrade_upgrade(scratch_db_factory: Callable[[str], URL]) -> None:
     url = scratch_db_factory("migrations")
 

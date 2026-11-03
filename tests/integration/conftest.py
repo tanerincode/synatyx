@@ -109,7 +109,7 @@ async def storage(migrated_db_url: URL) -> AsyncIterator[PostgresStorage]:
     )
     pg = PostgresStorage(dsn)
     async with pg._engine.begin() as conn:
-        await conn.execute(text("TRUNCATE handoffs, tasks CASCADE"))
+        await conn.execute(text("TRUNCATE handoffs, tasks, messages, tool_usage CASCADE"))
     try:
         yield pg
     finally:

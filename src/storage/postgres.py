@@ -26,6 +26,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.config import settings
 from src.models.handoff import Handoff, HandoffReport, HandoffStatus, HandoffVersion
+from src.models.message import Message, MessageBox, MessageKind, MessageStatus
 from src.models.relation import MemoryRelation
 from src.models.session import KeyEntity, Session, SessionStatus
 from src.models.skill import Skill, _slugify
@@ -175,6 +176,30 @@ class HandoffReportRow(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status_after: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MessageRow(Base):
+    """A message from one user's Kai to another's (context_message_*)."""
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_recipient_status_created", "recipient_user_id", "status", "created_at"),
+        Index("ix_messages_sender_created", "sender_user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    sender_user_id: Mapped[str] = mapped_column(String, nullable=False)
+    sender_session: Mapped[str | None] = mapped_column(String, nullable=True)
+    sender_auth: Mapped[str | None] = mapped_column(String, nullable=True)
+    recipient_user_id: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False, default="note")
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="sent")
+    parent_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("messages.id", ondelete="CASCADE"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ToolUsageRow(Base):
@@ -704,6 +729,96 @@ class PostgresStorage:
             text=row.text,
             status_after=HandoffStatus(row.status_after) if row.status_after else None,
             created_at=row.created_at,
+        )
+
+    # ── Messages ─────────────────────────────────────────────────────────────
+
+    async def message_create(self, m: Message) -> Message:
+        async with self._session_factory() as session:
+            session.add(MessageRow(
+                id=m.id,
+                sender_user_id=m.sender_user_id,
+                sender_session=m.sender_session,
+                sender_auth=m.sender_auth,
+                recipient_user_id=m.recipient_user_id,
+                kind=m.kind.value,
+                body=m.body,
+                status=m.status.value,
+                parent_id=m.parent_id,
+                created_at=m.created_at,
+                delivered_at=m.delivered_at,
+            ))
+            await session.commit()
+        return m
+
+    async def message_get(self, message_id: str) -> Message | None:
+        async with self._session_factory() as session:
+            row = await session.get(MessageRow, message_id)
+        return self._row_to_message(row) if row else None
+
+    async def message_list(
+        self,
+        user_id: str,
+        box: MessageBox = MessageBox.INBOX,
+        *,
+        status: MessageStatus | None = None,
+        limit: int = 50,
+    ) -> list[Message]:
+        """Newest first. inbox = addressed to user_id, sent = written by user_id."""
+        async with self._session_factory() as session:
+            column = (
+                MessageRow.recipient_user_id if box == MessageBox.INBOX
+                else MessageRow.sender_user_id
+            )
+            stmt = select(MessageRow).where(column == user_id)
+            if status is not None:
+                stmt = stmt.where(MessageRow.status == status.value)
+            stmt = stmt.order_by(MessageRow.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._row_to_message(r) for r in result.scalars().all()]
+
+    async def message_mark_delivered(self, recipient_user_id: str, message_ids: list[str]) -> int:
+        """Flip unread messages to delivered. Only the recipient's own, only once."""
+        if not message_ids:
+            return 0
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(MessageRow)
+                .where(
+                    MessageRow.id.in_(message_ids),
+                    MessageRow.recipient_user_id == recipient_user_id,
+                    MessageRow.status == MessageStatus.SENT.value,
+                )
+                .values(status=MessageStatus.DELIVERED.value, delivered_at=func.now())
+            )
+            await session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
+    async def message_user_known(self, user_id: str) -> bool:
+        """Whether user_id has used this Synatyx: a metered tool call inside the
+        usage-retention window, or a message it sent. There is no user registry,
+        so this is the evidence that exists."""
+        async with self._session_factory() as session:
+            used = select(ToolUsageRow.id).where(ToolUsageRow.user_id == user_id).limit(1)
+            if (await session.execute(used)).first() is not None:
+                return True
+            sent = select(MessageRow.id).where(MessageRow.sender_user_id == user_id).limit(1)
+            return (await session.execute(sent)).first() is not None
+
+    @staticmethod
+    def _row_to_message(row: MessageRow) -> Message:
+        return Message(
+            id=row.id,
+            sender_user_id=row.sender_user_id,
+            sender_session=row.sender_session,
+            sender_auth=row.sender_auth,
+            recipient_user_id=row.recipient_user_id,
+            kind=MessageKind(row.kind),
+            body=row.body,
+            status=MessageStatus(row.status),
+            parent_id=row.parent_id,
+            created_at=row.created_at,
+            delivered_at=row.delivered_at,
         )
 
     # ── GC Log ───────────────────────────────────────────────────────────────
